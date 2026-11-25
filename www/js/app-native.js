@@ -725,7 +725,7 @@
     var page = $('page-settings');
     var about = document.createElement('div'); about.className = 'settings-section'; about.id = 'bp-about';
     about.innerHTML = '<h3>ℹ️ عن التطبيق</h3>' +
-      '<div class="setting-row bp-ver-row" onclick="BP.versionTap()"><div><div class="sr-label">رقم الإصدار</div><div class="sr-desc" id="bp-version">ميزانية Pro+</div></div><span class="bp-ver-ic">💰</span></div>' +
+      '<div class="setting-row bp-ver-row" onclick="BP.versionTap(event)"><div><div class="sr-label">رقم الإصدار</div><div class="sr-desc" id="bp-version">ميزانية Pro+</div></div><span class="bp-ver-ic">💰</span></div>' +
       '<div id="bp-dev-row" style="display:none">' + row('⚡ وضع المطور', 'مفعّل — يظهر إعدادات الذكاء الاصطناعي المتقدمة', sw('dev-switch', true, 'BP.toggleDev()', '⚡')) + '</div>';
     page.appendChild(about);
     var ver = $('bp-version');
@@ -741,7 +741,7 @@
     h.setAttribute('data-bp', '1'); h.classList.add('bp-topbar');
     var w = document.createElement('div'); w.className = 'tb-row';
     w.innerHTML = '<button class="tb-avatar" id="tb-avatar" onclick="bnNavigate(\'settings\')" aria-label="الإعدادات"></button>' +
-      '<div class="tb-text" onclick="BP.versionTap()"><div class="tb-hello" id="tb-hello"></div><div class="tb-date" id="tb-date"></div></div>' +
+      '<div class="tb-text" onclick="BP.versionTap(event)"><div class="tb-hello" id="tb-hello"></div><div class="tb-date" id="tb-date"></div></div>' +
       '<div class="tb-actions"><button class="tb-dev" id="tb-dev" onclick="BP.devBadge()" style="display:none">⚡ DEV</button>' +
       '<button class="tb-btn" id="bp-eye-btn" onclick="BP.togglePrivacy()" aria-label="إخفاء المبالغ">👁️</button></div>';
     h.appendChild(w);
@@ -772,16 +772,26 @@
   }
   BP.paintTopBar = paintTopBar;
 
-  /* Developer mode: tap the greeting in the top bar (or "رقم الإصدار" in Settings) 3 times quickly.
-     3 taps again → back to normal. Also: the switch in Settings or the ⚡ DEV badge. */
-  var _vt = 0, _vtT = null;
-  BP.versionTap = function () {
-    _vt++; clearTimeout(_vtT); _vtT = setTimeout(function () { _vt = 0; }, 2500);
-    haptic('tap');
-    var need = 3;
-    if (_vt >= need) { _vt = 0; clearTimeout(_vtT); BP.toggleDev(); return; }
-    if (_vt >= 9) toast('باقي ' + (need - _vt) + ' ' + (need - _vt === 1 ? 'ضغطة' : 'ضغطات') + (appData.creatorMode ? ' لإيقاف' : ' لتفعيل') + ' وضع المطور', 'info');
+  /* Developer mode: triple-tap the greeting in the top bar (or "رقم الإصدار" in Settings).
+     Triple-tap again → back to normal. Also: the switch in Settings or the ⚡ DEV badge. */
+  /* Strict triple-tap: exactly 3 quick taps in a row (≤ 350 ms between taps, ≤ 900 ms in total), then a
+     short pause. A 4th tap, a slow tap, or a tap elsewhere cancels it, so normal use never triggers it.
+     No hints, no vibration while tapping — it stays invisible to regular users. */
+  var _tt = [], _ttEl = null, _ttT = null;
+  BP.versionTap = function (ev) {
+    var el = (ev && ev.currentTarget) || null, now = Date.now();
+    if (!_tt.length || now - _tt[_tt.length - 1] > 350 || el !== _ttEl) _tt = [];
+    _ttEl = el; _tt.push(now);
+    clearTimeout(_ttT);
+    _ttT = setTimeout(function () {
+      var ok = _tt.length === 3 && (_tt[2] - _tt[0]) <= 900;
+      _tt = [];
+      if (ok) BP.toggleDev();
+    }, 380);
   };
+  document.addEventListener('pointerdown', function (e) {
+    if (_tt.length && _ttEl && !_ttEl.contains(e.target)) { _tt = []; clearTimeout(_ttT); }
+  }, true);
   BP.toggleDev = function () {
     try { secretClickCount = 2; handleSecretClick(); haptic(appData.creatorMode ? 'success' : 'tap'); }
     catch (e) { appData.creatorMode = !appData.creatorMode; save(); if (typeof applyCreatorMode === 'function') applyCreatorMode(); }
@@ -794,6 +804,35 @@
   }
   wrap('applyCreatorMode', function () { paintDev(); paintTopBar(); });
   wrap('renderProfileSection', function () { paintTopBar(); });
+
+  /* Chat page: hide the app's top bar (the chat has its own header). */
+  wrap('switchPage', function (r, page) { document.body.classList.toggle('bp-on-ai', page === 'ai'); });
+
+  /* Keyboard detection (visualViewport): while the soft keyboard is up, body.bp-kb collapses non-essential
+     chrome so the chat messages + input (and table cells) stay visible above the keyboard. */
+  (function () {
+    var base = window.innerHeight, vv = window.visualViewport;
+    function typing() { var a = document.activeElement; return !!(a && (a.tagName === 'TEXTAREA' || (a.tagName === 'INPUT' && !/^(checkbox|radio|button|file|range|color)$/.test(a.type)) || a.isContentEditable)); }
+    function check() {
+      var h = vv ? vv.height : window.innerHeight;
+      if (!typing() && h > base * 0.9) base = Math.max(h, window.innerHeight);
+      if (h > base) base = h;
+      var kb = typing() && h < base * 0.8;
+      if (kb !== document.body.classList.contains('bp-kb')) {
+        document.body.classList.toggle('bp-kb', kb);
+        if (kb) setTimeout(function () {
+          var a = document.activeElement;
+          if (a && a.id === 'chat-input') { var m = $('chat-messages'); if (m) m.scrollTop = m.scrollHeight; }
+          else if (a && a.scrollIntoView) try { a.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (e) {}
+        }, 60);
+      }
+    }
+    if (vv) vv.addEventListener('resize', check);
+    window.addEventListener('resize', check);
+    document.addEventListener('focusin', function () { setTimeout(check, 350); });
+    document.addEventListener('focusout', function () { setTimeout(check, 250); });
+    window.addEventListener('orientationchange', function () { setTimeout(function () { base = window.innerHeight; check(); }, 500); });
+  })();
 
   /* Table cells: the tiny 🧮 / ! icons sat on top of the inputs, so tapping near a corner while typing
      opened the calculator. They are removed from the cells; instead a small toolbar appears above the

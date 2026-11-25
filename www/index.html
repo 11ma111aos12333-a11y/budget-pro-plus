@@ -4645,53 +4645,38 @@ button,a,.bn-tab,[onclick]{touch-action:manipulation;}
 <!-- Calculator Overlay -->
 <div class="calc-overlay" id="calc-overlay" onclick="closeCalc()"></div>
 
-<!-- Calculator Panel — modern redesigned sheet -->
-<div class="calc-panel" id="calc-panel">
-  <!-- Header with title + close button -->
-  <div class="calc-header">
-    <div class="calc-header-title">🧮 آلة حاسبة</div>
-    <button class="calc-close-btn" onclick="closeCalc()" aria-label="إغلاق">✕</button>
+<!-- Calculator — v2 (modern: what you type is big & clear, the live result is previewed under it) -->
+<div class="bpc" id="calc-panel" role="dialog" aria-label="آلة حاسبة" aria-hidden="true">
+  <div class="bpc-grab"></div>
+  <div class="bpc-head">
+    <div class="bpc-target" id="bpc-target">🧮 الحاسبة</div>
+    <button class="bpc-x" onclick="closeCalc()" aria-label="إغلاق">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+    </button>
   </div>
-
-  <!-- Display -->
-  <div class="calc-display">
-    <div class="calc-expr" id="calc-expr"></div>
-    <div class="calc-result" id="calc-result">0</div>
+  <div class="bpc-screen" dir="ltr">
+    <div class="bpc-hist" id="calc-history"></div>
+    <div class="bpc-expr" id="calc-expr">0</div>
+    <div class="bpc-live" id="calc-result"></div>
   </div>
-
-  <!-- Buttons grid -->
-  <div class="calc-grid">
-    <button class="calc-btn clear" onclick="calcClear()">C</button>
-    <button class="calc-btn op" onclick="calcInput('(')">(</button>
-    <button class="calc-btn op" onclick="calcInput(')')">)</button>
-    <button class="calc-btn op" onclick="calcOp('/')">&#247;</button>
-
-    <button class="calc-btn" onclick="calcInput('7')">7</button>
-    <button class="calc-btn" onclick="calcInput('8')">8</button>
-    <button class="calc-btn" onclick="calcInput('9')">9</button>
-    <button class="calc-btn op" onclick="calcOp('*')">&#215;</button>
-
-    <button class="calc-btn" onclick="calcInput('4')">4</button>
-    <button class="calc-btn" onclick="calcInput('5')">5</button>
-    <button class="calc-btn" onclick="calcInput('6')">6</button>
-    <button class="calc-btn op" onclick="calcOp('-')">&#8722;</button>
-
-    <button class="calc-btn" onclick="calcInput('1')">1</button>
-    <button class="calc-btn" onclick="calcInput('2')">2</button>
-    <button class="calc-btn" onclick="calcInput('3')">3</button>
-    <button class="calc-btn op" onclick="calcOp('+')">+</button>
-
-    <button class="calc-btn" onclick="calcInput('0')">0</button>
-    <button class="calc-btn" onclick="calcInput('.')">.</button>
-    <button class="calc-btn back" onclick="calcBackspace()">&#9003;</button>
-    <button class="calc-btn eq" onclick="calcEval()">=</button>
+  <div class="bpc-keys" dir="ltr">
+    <button class="k fn ac" data-k="AC">AC</button>
+    <button class="k fn" data-k="BS" aria-label="مسح"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"><path d="M21 5H9l-6 7 6 7h12a1 1 0 0 0 1-1V6a1 1 0 0 0-1-1z"/><path d="M17 9l-5 6M12 9l5 6"/></svg></button>
+    <button class="k fn" data-k="%">%</button>
+    <button class="k op" data-k="/">÷</button>
+    <button class="k" data-k="7">7</button><button class="k" data-k="8">8</button><button class="k" data-k="9">9</button>
+    <button class="k op" data-k="*">×</button>
+    <button class="k" data-k="4">4</button><button class="k" data-k="5">5</button><button class="k" data-k="6">6</button>
+    <button class="k op" data-k="-">−</button>
+    <button class="k" data-k="1">1</button><button class="k" data-k="2">2</button><button class="k" data-k="3">3</button>
+    <button class="k op" data-k="+">+</button>
+    <button class="k" data-k="00">00</button><button class="k" data-k="0">0</button><button class="k" data-k=".">.</button>
+    <button class="k eq" data-k="=">=</button>
   </div>
-
-  <!-- Insert result into the active input cell -->
-  <div style="margin-top:10px;">
-    <button class="calc-btn insert" style="width:100%;padding:14px;font-weight:700;font-size:15px;" onclick="insertCalcResult()">✓ إدخال القيمة</button>
-  </div>
-  <div class="calc-history" id="calc-history"></div>
+  <button class="bpc-insert" id="bpc-insert" onclick="insertCalcResult()">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5L20 7"/></svg>
+    <span>إدخال</span> <b id="bpc-insert-val" dir="ltr">0</b>
+  </button>
 </div>
 
 <!-- Toast Container -->
@@ -6537,79 +6522,161 @@ function _safeMathEval(expr) {
   return stack[0];
 }
 
+// ===== Calculator v2 =====
+// The expression you type is the big line; the live result is previewed under it; "=" promotes the
+// result to the big line (the finished sum moves up as a small history line). Opening from a table cell
+// starts from the cell's current value so you can simply add to it (e.g. 120 + 35).
+let _calcDone = false, _calcLast = 0;
+const _CALC_OPS = '+-*/';
+function _calcFmtNum(n) {
+  const neg = n < 0; n = Math.abs(n);
+  const r = parseFloat(n.toFixed(8));
+  let [i, f] = String(r).split('.');
+  if (/e/i.test(i)) return (neg ? '-' : '') + String(r);
+  i = i.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  return (neg ? '-' : '') + i + (f ? '.' + f : '');
+}
+function _calcPretty(e) {
+  return e.replace(/\d+(\.\d*)?/g, m => {
+    const [i, f] = m.split('.');
+    return i.replace(/\B(?=(\d{3})+(?!\d))/g, ',') + (f !== undefined ? '.' + f : '');
+  }).replace(/\*/g, ' × ').replace(/\//g, ' ÷ ').replace(/\+/g, ' + ').replace(/(\d|\)|%)-/g, '$1 − ');
+}
+function _calcEvalStr(e) {
+  if (!e) return NaN;
+  let x = e.replace(/(\d+(?:\.\d+)?)%/g, '($1/100)');
+  while (x && _CALC_OPS.includes(x.slice(-1))) x = x.slice(0, -1);
+  if (!x) return NaN;
+  const res = _safeMathEval(x);
+  return (isNaN(res) || !isFinite(res)) ? NaN : parseFloat(res.toFixed(8));
+}
+function _calcRender(anim) {
+  const ex = document.getElementById('calc-expr'), lv = document.getElementById('calc-result');
+  const shown = calcExpression ? _calcPretty(calcExpression) : '0';
+  ex.textContent = shown;
+  const len = shown.length;
+  ex.style.fontSize = len <= 8 ? '' : len <= 12 ? '38px' : len <= 17 ? '30px' : len <= 24 ? '24px' : '20px';
+  const res = _calcEvalStr(calcExpression);
+  const hasOp = /[+\-*/%]/.test(calcExpression.replace(/^-/, ''));
+  if (!_calcDone && hasOp && !isNaN(res)) { lv.textContent = '= ' + _calcFmtNum(res); lv.classList.add('on'); }
+  else { lv.textContent = ''; lv.classList.remove('on'); }
+  if (!isNaN(res)) _calcLast = res; else if (!calcExpression) _calcLast = 0;
+  const iv = document.getElementById('bpc-insert-val'); if (iv) iv.textContent = _calcFmtNum(_calcLast);
+  const ib = document.getElementById('bpc-insert'); if (ib) ib.disabled = !activeInput;
+  ex.classList.toggle('done', !!_calcDone);
+  if (anim) { ex.classList.remove('pop'); void ex.offsetWidth; ex.classList.add('pop'); }
+}
 function openCalc() {
+  const pnl = document.getElementById('calc-panel');
   document.getElementById('calc-overlay').classList.add('show');
-  document.getElementById('calc-panel').classList.add('show');
-  calcExpression = '';
-  document.getElementById('calc-expr').textContent = '';
-  document.getElementById('calc-result').textContent = '0';
+  pnl.classList.add('show'); pnl.setAttribute('aria-hidden', 'false');
+  _calcDone = false;
+  const v = activeInput ? parseFloat(activeInput.value) : NaN;
+  calcExpression = (!isNaN(v) && v !== 0) ? String(v) : '';
+  document.getElementById('calc-history').textContent = '';
+  let label = '🧮 الحاسبة';
+  if (activeInput && activeInput.getAttribute('data-d')) {
+    const t = activeInput.getAttribute('data-t');
+    let name = 'دخل';
+    if (t !== 'i') { const c = (appData.categories || []).find(x => x.id === t); name = c ? c.icon + ' ' + c.name : t; }
+    label = 'يوم ' + activeInput.getAttribute('data-d') + ' • ' + name;
+  }
+  document.getElementById('bpc-target').textContent = label;
+  _calcRender();
 }
-
 function closeCalc() {
+  const pnl = document.getElementById('calc-panel');
   document.getElementById('calc-overlay').classList.remove('show');
-  document.getElementById('calc-panel').classList.remove('show');
+  pnl.classList.remove('show'); pnl.setAttribute('aria-hidden', 'true');
 }
-
 function calcInput(ch) {
+  if (_calcDone && /[\d.]/.test(ch)) { calcExpression = ''; document.getElementById('calc-history').textContent = ''; }
+  _calcDone = false;
+  if (ch === '(' || ch === ')') { calcExpression += ch; return _calcRender(); }
+  const cur = (calcExpression.match(/[\d.]*$/) || [''])[0];
+  if (ch === '.') { if (cur.includes('.')) return; if (!cur) ch = '0.'; }
+  else if (ch === '00') { if (!cur || cur === '0') ch = cur ? '' : '0'; }
+  else if (cur === '0') calcExpression = calcExpression.slice(0, -1);
+  if (calcExpression.slice(-1) === '%') calcExpression += '*';
+  if ((calcExpression + ch).replace(/[^\d]/g, '').length > 15 && cur.length >= 15) return;
   calcExpression += ch;
-  document.getElementById('calc-expr').textContent = calcExpression;
-  // Live-preview the result using the safe evaluator (no eval/Function)
-  const res = _safeMathEval(calcExpression);
-  if (!isNaN(res) && isFinite(res)) {
-    document.getElementById('calc-result').textContent = parseFloat(res.toFixed(8));
-  }
-  // If expression is incomplete (e.g. "1+"), don't show error — just keep the last valid result
+  _calcRender();
 }
-
 function calcOp(op) {
+  _calcDone = false;
+  if (!calcExpression) { if (op === '-') { calcExpression = '-'; return _calcRender(); } calcExpression = String(_calcLast || 0); }
+  if (calcExpression.slice(-1) === '.') calcExpression = calcExpression.slice(0, -1);
+  if (_CALC_OPS.includes(calcExpression.slice(-1))) calcExpression = calcExpression.slice(0, -1);
+  if (!calcExpression || calcExpression === '-') { calcExpression = op === '-' ? '-' : ''; return _calcRender(); }
   calcExpression += op;
-  document.getElementById('calc-expr').textContent = calcExpression;
+  _calcRender();
 }
-
+function calcPercent() {
+  _calcDone = false;
+  if (/\d$/.test(calcExpression)) { calcExpression += '%'; _calcRender(); }
+}
 function calcClear() {
-  calcExpression = '';
-  document.getElementById('calc-expr').textContent = '';
-  document.getElementById('calc-result').textContent = '0';
+  calcExpression = ''; _calcDone = false; _calcLast = 0;
+  document.getElementById('calc-history').textContent = '';
+  _calcRender();
 }
-
 function calcBackspace() {
+  if (_calcDone) { _calcDone = false; }
   calcExpression = calcExpression.slice(0, -1);
-  document.getElementById('calc-expr').textContent = calcExpression;
-  if (calcExpression) {
-    const res = _safeMathEval(calcExpression);
-    if (!isNaN(res) && isFinite(res)) {
-      document.getElementById('calc-result').textContent = parseFloat(res.toFixed(8));
-    }
-  } else {
-    document.getElementById('calc-result').textContent = '0';
-  }
+  _calcRender();
 }
-
 function calcEval() {
-  const res = _safeMathEval(calcExpression);
-  if (!isNaN(res) && isFinite(res)) {
-    const rounded = parseFloat(res.toFixed(8));
-    calcHistoryStr = calcExpression + ' = ' + rounded;
-    document.getElementById('calc-history').textContent = calcHistoryStr;
-    document.getElementById('calc-result').textContent = rounded;
-    calcExpression = String(rounded);
-    document.getElementById('calc-expr').textContent = '';
-  } else {
-    document.getElementById('calc-result').textContent = '\u062E\u0637\u0623';
+  const res = _calcEvalStr(calcExpression);
+  if (isNaN(res)) {
+    const ex = document.getElementById('calc-expr');
+    ex.classList.remove('shake'); void ex.offsetWidth; ex.classList.add('shake');
+    return;
   }
+  if (/[+\-*/%]/.test(calcExpression.replace(/^-/, ''))) {
+    calcHistoryStr = _calcPretty(calcExpression) + ' =';
+    document.getElementById('calc-history').textContent = calcHistoryStr;
+  }
+  calcExpression = String(res);
+  _calcDone = true;
+  _calcRender(true);
 }
-
 function insertCalcResult() {
+  const r = _calcEvalStr(calcExpression);
+  const val = !isNaN(r) ? r : _calcLast;
   if (activeInput) {
-    const result = document.getElementById('calc-result').textContent;
-    if (result !== '\u062E\u0637\u0623' && result !== '0') {
-      activeInput.value = result;
-      onInputChange(activeInput);
-      showToast('\u062A\u0645 \u0625\u062F\u0631\u0627\u062C \u0627\u0644\u0642\u064A\u0645\u0629', 'success');
-    }
+    activeInput.value = val ? String(val) : '';
+    onInputChange(activeInput);
+    showToast('✓ تم إدخال ' + _calcFmtNum(val), 'success');
   }
   closeCalc();
 }
+// One delegated handler for all keys (+ light haptic tick)
+document.addEventListener('click', function (e) {
+  const k = e.target.closest && e.target.closest('#calc-panel .k');
+  if (!k) return;
+  const v = k.getAttribute('data-k');
+  try { if (window.BP && BP.haptic) BP.haptic('tap'); } catch (er) {}
+  if (v === 'AC') calcClear();
+  else if (v === 'BS') calcBackspace();
+  else if (v === '%') calcPercent();
+  else if (v === '=') calcEval();
+  else if (_CALC_OPS.includes(v)) calcOp(v);
+  else calcInput(v);
+});
+// Physical keyboard (tablets / desktop)
+document.addEventListener('keydown', function (e) {
+  const p = document.getElementById('calc-panel');
+  if (!p || !p.classList.contains('show')) return;
+  const k = e.key;
+  if (/^[0-9.]$/.test(k)) calcInput(k);
+  else if (_CALC_OPS.includes(k)) calcOp(k);
+  else if (k === '%') calcPercent();
+  else if (k === 'Enter' || k === '=') calcEval();
+  else if (k === 'Backspace') calcBackspace();
+  else if (k === 'Escape') closeCalc();
+  else return;
+  e.preventDefault();
+});
 
 // ========== CHARTS ==========
 let _chartsRafId = null;
