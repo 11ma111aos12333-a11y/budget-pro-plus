@@ -4082,6 +4082,7 @@ button,a,.bn-tab,[onclick]{touch-action:manipulation;}
 }
 #photo-viewer-overlay .pv-action-btn.primary { background: var(--grad-primary); border-color: transparent; }
 </style>
+<link rel="stylesheet" href="css/app-native.css">
 </head>
 <body>
 <!-- Onboarding (step-by-step, one question per screen) -->
@@ -5906,14 +5907,17 @@ function saveQuickEntry() {
   if (!slot) { showToast('التاريخ خارج مدة خطة الميزانية الحالية', 'error'); return; }
   const field = type === 'income' ? 'i' : category;
   if (!field) { showToast('اختر فئة المصروف', 'error'); return; }
-  setRec(slot.m, slot.d, field, amount);
+  // FIX: add to the existing value of that day instead of overwriting it
+  const prevVal = getVal(slot.m, slot.d, field);
+  const newVal = Math.round((prevVal + amount) * 100) / 100;
+  setRec(slot.m, slot.d, field, newVal);
   const key = 'm' + slot.m + '-d' + slot.d + '-' + field;
-  if (note) appData.notes[key] = note; else delete appData.notes[key];
+  if (note) appData.notes[key] = (prevVal > 0 && appData.notes[key]) ? (appData.notes[key] + ' • ' + note).slice(0, 200) : note;
   appData.smartEntryCount = (Number(appData.smartEntryCount) || 0) + 1;
   saveData();
   closeQuickEntry();
   renderDashboard(); renderTable_ifTilesVisible(); renderCharts();
-  showToast('✓ تم حفظ العملية في ' + getMonthName(slot.m) + '، اليوم ' + slot.d, 'success');
+  showToast('✓ تم حفظ العملية في ' + getMonthName(slot.m) + '، اليوم ' + slot.d + (prevVal > 0 ? ' (الإجمالي: ' + fmt(newVal) + ')' : ''), 'success');
 }
 
 // ========== DASHBOARD ==========
@@ -10764,5 +10768,6 @@ function onProfileBarPhotoClick() {
   }
 }
 </script>
+<script src="js/app-native.js"></script>
 </body>
 </html>
