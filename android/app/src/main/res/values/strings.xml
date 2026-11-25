@@ -1,0 +1,11 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">ميزانية Pro+</string>
+    <string name="title_activity_main">ميزانية Pro+</string>
+    <string name="package_name">com.budgetpro.plus</string>
+    <string name="custom_url_scheme">com.budgetpro.plus</string>
+    <string name="sc_expense">مصروف سريع</string>
+    <string name="sc_income">دخل جديد</string>
+    <string name="sc_calc">الحاسبة</string>
+    <string name="sc_ai">المساعد الذكي</string>
+</resources>
