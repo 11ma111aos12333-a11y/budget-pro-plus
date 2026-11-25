@@ -68,6 +68,8 @@
     if (d.permAsked === undefined) d.permAsked = false;
     if (d.lastBackupRemind === undefined) d.lastBackupRemind = null;
     if (!d.catAlerts || typeof d.catAlerts !== 'object') d.catAlerts = {};
+    if (d.hapticsEnabled === undefined) d.hapticsEnabled = true;
+    if (!d.alertsShown || typeof d.alertsShown !== 'object') d.alertsShown = {};
   }
   wrap('loadData', null, function () { BP._hadData = !!localStorage.getItem(DB_KEY); });
   var _loadAfter = W.loadData;
@@ -152,6 +154,7 @@
    * 3. Haptics
    * ------------------------------------------------------------------ */
   function haptic(kind) {
+    if (typeof appData !== 'undefined' && appData.hapticsEnabled === false) return;
     var H = plug('Haptics');
     try {
       if (H) {
@@ -164,6 +167,13 @@
     } catch (e) {}
   }
   BP.haptic = haptic;
+  BP.toggleHaptics = function () {
+    appData.hapticsEnabled = !(appData.hapticsEnabled !== false);
+    save();
+    var sw = $('haptics-switch'); if (sw) sw.classList.toggle('active', appData.hapticsEnabled);
+    if (appData.hapticsEnabled) haptic('success');
+    toast(appData.hapticsEnabled ? '📳 تم تفعيل الاهتزاز' : '🔕 تم إيقاف الاهتزاز', 'info');
+  };
   wrap('showToast', null, function (msg, type) { if (type === 'success' || type === 'error' || type === 'warning') haptic(type); });
   wrap('bnNavigate', null, function () { haptic('tap'); });
 
@@ -200,22 +210,40 @@
       appData.notificationsEnabled = was;
       toast('تم إرسال إشعار اختباري', 'success');
     };
-    W.clearNotificationTimers = function () { var L = LN(); if (L) L.cancel({ notifications: [{ id: DAILY_ID }] }).catch(function () {}); };
-    W.scheduleNotifications = function () {
+    var DAILY_BASE = 1100, DAILY_DAYS = 14;
+    function dailyIds() { var a = [{ id: DAILY_ID }]; for (var i = 0; i < DAILY_DAYS + 1; i++) a.push({ id: DAILY_BASE + i }); return a; }
+    BP.exactAllowed = async function () {
+      try { var r = await LN().checkExactNotificationSetting(); return r.exact_alarm === 'granted'; } catch (e) { return true; }
+    };
+    W.clearNotificationTimers = function () { var L = LN(); if (L) L.cancel({ notifications: dailyIds() }).catch(function () {}); };
+    // Daily reminder: each of the next 14 days is scheduled as its own alarm, computed with the PHONE's
+    // local clock & time zone (new Date(y, m, d, h, min)). When the user allows exact alarms the reminder
+    // fires on the exact minute (setExactAndAllowWhileIdle). Re-planned every time the app opens/closes,
+    // so a changed time zone or phone clock is picked up automatically.
+    W.scheduleNotifications = async function () {
       var L = LN(); if (!L) return;
-      L.cancel({ notifications: [{ id: DAILY_ID }] }).catch(function () {}).then(function () {
-        if (!appData.notificationsEnabled || !appData.notifDaily) return;
-        var hm = (appData.notifDailyTime || '20:00').split(':').map(Number);
-        var body = 'لا تنسَ تسجيل مصاريف اليوم 📝';
-        try {
-          var all = calcAllData();
-          var total = appData.budget + all.totalIncome;
-          var pct = total > 0 ? Math.round(all.totalSpent / total * 100) : 0;
-          body = 'صرفت ' + money(all.totalSpent) + ' (' + pct + '%) — المتبقي ' + money(all.remaining) + '. سجّل مصاريف اليوم 📝';
-        } catch (e) {}
-        ensureChannel();
-        L.schedule({ notifications: [{ id: DAILY_ID, title: '📊 ' + (appData.userName ? appData.userName + '، ' : '') + 'ميزانيتك اليوم', body: body, channelId: 'budget', smallIcon: 'ic_stat_notify', iconColor: '#6366f1', isExactNotification: false, schedule: { on: { hour: hm[0] || 20, minute: hm[1] || 0 }, allowWhileIdle: true } }] }).catch(function (e) { console.warn('daily schedule', e); });
-      });
+      try { await L.cancel({ notifications: dailyIds() }); } catch (e) {}
+      if (!appData.notificationsEnabled || !appData.notifDaily) return;
+      var hm = (appData.notifDailyTime || '20:00').split(':').map(Number);
+      var H = isFinite(hm[0]) ? hm[0] : 20, M = isFinite(hm[1]) ? hm[1] : 0;
+      var exact = await BP.exactAllowed();
+      var statsBody = 'لا تنسَ تسجيل مصاريف اليوم 📝';
+      try {
+        var all = calcAllData();
+        statsBody = all.remaining < 0
+          ? '⛔ تجاوزت الميزانية بـ ' + money(-all.remaining) + '. سجّل مصاريف اليوم 📝'
+          : 'المتبقي من ميزانيتك ' + money(all.remaining) + '. سجّل مصاريف اليوم 📝';
+      } catch (e) {}
+      var title = '📊 ' + (appData.userName ? appData.userName + '، ' : '') + 'تذكير الميزانية';
+      var now = new Date(), list = [];
+      for (var i = 0; i <= DAILY_DAYS && list.length < DAILY_DAYS; i++) {
+        var at = new Date(now.getFullYear(), now.getMonth(), now.getDate() + i, H, M, 0, 0);
+        if (at.getTime() <= now.getTime() + 15000) continue;
+        list.push({ id: DAILY_BASE + list.length, title: title, body: list.length === 0 ? statsBody : 'لا تنسَ تسجيل مصاريف اليوم وتابع ميزانيتك 📝', channelId: 'budget', smallIcon: 'ic_stat_notify', iconColor: '#6366f1', isExactNotification: exact, schedule: { at: at, allowWhileIdle: true } });
+      }
+      ensureChannel();
+      try { await L.schedule({ notifications: list }); BP._lastSchedule = { exact: exact, first: list[0] && list[0].schedule.at }; }
+      catch (e) { console.warn('daily schedule', e); }
     };
   }
 
@@ -282,11 +310,12 @@
    * 8. Permissions screen
    * ------------------------------------------------------------------ */
   async function permStatus() {
-    var r = { notif: 'unknown', storage: 'unknown' };
+    var r = { notif: 'unknown', storage: 'unknown', exact: 'unsupported' };
     try {
       if (isNative) {
         var n = await LN().checkPermissions(); r.notif = n.display;
         var s = await plug('Filesystem').checkPermissions(); r.storage = s.publicStorage;
+        try { var x = await LN().checkExactNotificationSetting(); r.exact = x.exact_alarm; } catch (e) { r.exact = 'granted'; }
       } else {
         r.notif = (typeof Notification !== 'undefined') ? (Notification.permission === 'default' ? 'prompt' : Notification.permission) : 'unsupported';
         r.storage = 'granted';
@@ -304,6 +333,8 @@
     return '' +
       '<div class="bp-perm"><div class="bp-perm-ic">🔔</div><div class="bp-perm-tx"><b>الإشعارات</b><small>تذكير يومي بتسجيل المصاريف، وتنبيه عند الوصول لـ 75% و90% من الميزانية، وتذكير بمواعيد الديون.</small>' + chip(st.notif) + '</div>' +
       (st.notif === 'granted' ? '' : '<button class="bp-btn sm" onclick="BP.askNotif()">سماح</button>') + '</div>' +
+      (st.exact !== 'unsupported' ? '<div class="bp-perm"><div class="bp-perm-ic">⏰</div><div class="bp-perm-tx"><b>التنبيه في الموعد بالظبط</b><small>يخلي التذكير اليومي يوصل في نفس الدقيقة اللي حددتها بتوقيت موبايلك، من غير ولا دقيقة تأخير.</small>' + chip(st.exact) + '</div>' +
+      (st.exact === 'granted' ? '' : '<button class="bp-btn sm" onclick="BP.askExact()">سماح</button>') + '</div>' : '') +
       '<div class="bp-perm"><div class="bp-perm-ic">📁</div><div class="bp-perm-tx"><b>التخزين</b><small>لحفظ النسخ الاحتياطية وملفات Excel والتقارير في مجلد Documents/BudgetPro على جهازك.</small>' + chip(st.storage) + '</div>' +
       (st.storage === 'granted' ? '' : '<button class="bp-btn sm" onclick="BP.askStorage()">سماح</button>') + '</div>' +
       (st.notif === 'denied' ? '<p class="bp-note">⚠️ رفضت الإشعارات سابقًا. لتفعيلها: إعدادات الجهاز ← التطبيقات ← ميزانية Pro+ ← الإشعارات.</p>' : '');
@@ -340,8 +371,20 @@
     } catch (e) { toast('لم يتم السماح بالتخزين', 'warning'); }
     return refreshPerm();
   };
+  BP.askExact = async function () {
+    try {
+      var x = await LN().checkExactNotificationSetting();
+      if (x.exact_alarm !== 'granted') {
+        toast('فعّل «السماح بضبط المنبهات والتذكيرات» ثم ارجع للتطبيق', 'info');
+        x = await LN().changeExactNotificationSetting();
+      }
+      if (x.exact_alarm === 'granted') { toast('⏰ التنبيهات هتوصل في موعدها بالظبط', 'success'); if (typeof scheduleNotifications === 'function') scheduleNotifications(); }
+    } catch (e) {}
+    return refreshPerm();
+  };
   BP.askAll = async function () {
-    await BP.askNotif(); await BP.askStorage();
+    var st = await BP.askNotif(); await BP.askStorage();
+    if (isNative && st && st.notif === 'granted' && st.exact !== 'granted' && st.exact !== 'unsupported') await BP.askExact();
     setTimeout(function () { BP.closeSheet('bp-perm-sheet'); }, 600);
   };
 
@@ -596,6 +639,53 @@
     box.innerHTML = html;
   }
   BP.renderInsights = renderInsights;
+
+  /* Budget watch: runs after EVERY change (table typing, quick entry, AI, import…).
+     Thresholds 75% / 90% / 100% for each month and for the whole budget. In-app toast + phone
+     notification. When spending goes back under a threshold the alert re-arms automatically. */
+  var LEVELS = [75, 90, 100];
+  function levelCheck(prefix, pct) {
+    var shown = appData.alertsShown, fired = 0;
+    LEVELS.forEach(function (L) {
+      var k = prefix + L;
+      if (pct >= L) { if (!shown[k]) { shown[k] = true; fired = Math.max(fired, L); } }
+      else if (shown[k]) delete shown[k];
+    });
+    return fired;
+  }
+  function budgetWatch() {
+    if (!appData || !appData.setupCompleted) return;
+    var before = JSON.stringify(appData.alertsShown || {});
+    var msgs = [];
+    for (var m = 0; m < appData.months; m++) {
+      var md = calcMonthData(m);
+      if (md.totalSpent <= 0) { levelCheck('wm' + m + '-', 0); continue; }
+      var base = md.allocation + md.totalIncome;
+      var pct = base > 0 ? md.totalSpent / base * 100 : 1000;
+      var f = levelCheck('wm' + m + '-', pct), name = getMonthName(m);
+      if (f === 100) msgs.push({ t: 'error', title: '⛔ خلصت حصة ' + name, body: base > 0 ? 'صرفت ' + money(md.totalSpent) + ' من ' + money(base) + ' — تجاوزت بـ ' + money(md.totalSpent - base) : 'الميزانية خلصت قبل الشهر ده، وصرفت فيه ' + money(md.totalSpent) });
+      else if (f === 90) msgs.push({ t: 'error', title: '🚨 وصلت 90% من حصة ' + name, body: 'المتبقي ' + money(Math.max(0, base - md.totalSpent)) + ' بس' });
+      else if (f === 75) msgs.push({ t: 'warning', title: '⚠️ وصلت 75% من حصة ' + name, body: 'المتبقي ' + money(Math.max(0, base - md.totalSpent)) });
+    }
+    var all = calcAllData(), total = appData.budget + all.totalIncome;
+    var gp = all.totalSpent <= 0 ? 0 : (total > 0 ? all.totalSpent / total * 100 : 1000);
+    var g = levelCheck('wg-', gp);
+    if (g === 100) msgs.push({ t: 'error', big: true, title: '⛔ الميزانية الإجمالية خلصت!', body: 'صرفت ' + money(all.totalSpent) + ' من ' + money(total) + ' — تجاوزت بـ ' + money(Math.max(0, all.totalSpent - total)) + '. المتبقي الآن 0.' });
+    else if (g === 90) msgs.push({ t: 'error', title: '🚨 وصلت 90% من الميزانية الإجمالية', body: 'المتبقي ' + money(Math.max(0, all.remaining)) + ' فقط' });
+    else if (g === 75) msgs.push({ t: 'warning', title: '⚠️ وصلت 75% من الميزانية الإجمالية', body: 'المتبقي ' + money(Math.max(0, all.remaining)) });
+    if (JSON.stringify(appData.alertsShown) !== before) save();
+    msgs.forEach(function (x, i) {
+      setTimeout(function () {
+        if (x.big) showModal('⛔', x.title, x.body, null);
+        else toast(x.title + ' — ' + x.body, x.t);
+        if (typeof sendNotification === 'function' && appData.notificationsEnabled) sendNotification(x.title, x.body);
+      }, i * 900);
+    });
+  }
+  BP.budgetWatch = budgetWatch;
+  W.checkBudgetAlerts = function () { clearTimeout(BP._bw); BP._bw = setTimeout(budgetWatch, 250); };
+  W.checkBudgetAlertsWithNotif = function () { budgetWatch(); };
+  wrap('renderDashboard', function () { clearTimeout(BP._bw); BP._bw = setTimeout(budgetWatch, 400); });
   wrap('renderCharts', function () { try { renderInsights(); } catch (e) { console.warn(e); } });
   wrap('saveQuickEntry', function () { try { checkCatAlerts(); } catch (e) {} });
   wrap('onInputChange', function () { clearTimeout(BP._cat); BP._cat = setTimeout(function () { try { checkCatAlerts(); } catch (e) {} }, 1500); });
@@ -610,7 +700,10 @@
     var themeRow = $('theme-switch') && $('theme-switch').closest('.setting-row');
     if (themeRow) {
       var r = document.createElement('div'); r.innerHTML = row('تلقائي حسب الجهاز', 'اتّباع الوضع الفاتح/الداكن الخاص بالنظام', sw('theme-auto-switch', appData.themeAuto, 'BP.toggleThemeAuto()', '🌓'));
-      themeRow.parentNode.insertBefore(r.firstChild, themeRow.nextSibling);
+      var autoRow = r.firstChild;
+      themeRow.parentNode.insertBefore(autoRow, themeRow.nextSibling);
+      var r2 = document.createElement('div'); r2.innerHTML = row('الاهتزاز عند اللمس', 'اهتزاز خفيف عند الحفظ والتنبيهات والتنقل بين الصفحات', sw('haptics-switch', appData.hapticsEnabled !== false, 'BP.toggleHaptics()', '📳'));
+      autoRow.parentNode.insertBefore(r2.firstChild, autoRow.nextSibling);
     }
     var anchor = $('notifications-section'); if (!anchor) return;
     var frag = document.createElement('div');
@@ -630,19 +723,114 @@
     var ref = anchor.nextSibling;
     while (frag.firstChild) anchor.parentNode.insertBefore(frag.firstChild, ref);
     var page = $('page-settings');
-    var ver = document.createElement('div'); ver.className = 'bp-version'; ver.id = 'bp-version'; ver.textContent = 'ميزانية Pro+';
-    page.appendChild(ver);
+    var about = document.createElement('div'); about.className = 'settings-section'; about.id = 'bp-about';
+    about.innerHTML = '<h3>ℹ️ عن التطبيق</h3>' +
+      '<div class="setting-row bp-ver-row" onclick="BP.versionTap()"><div><div class="sr-label">رقم الإصدار</div><div class="sr-desc" id="bp-version">ميزانية Pro+</div></div><span class="bp-ver-ic">💰</span></div>' +
+      '<div id="bp-dev-row" style="display:none">' + row('⚡ وضع المطور', 'مفعّل — يظهر إعدادات الذكاء الاصطناعي المتقدمة', sw('dev-switch', true, 'BP.toggleDev()', '⚡')) + '</div>';
+    page.appendChild(about);
+    var ver = $('bp-version');
     if (isNative && plug('App')) plug('App').getInfo().then(function (i) { ver.textContent = 'ميزانية Pro+ — الإصدار ' + i.version + ' (' + i.build + ')'; }).catch(function () {});
+    paintDev();
     refreshPerm();
   }
+  /* Compact smart top bar (replaces the tall title header + the tiny red secret dot):
+     avatar + greeting by the phone's clock + date, privacy eye, and a DEV badge when developer mode is on.
+     It slides away while scrolling down and comes back when scrolling up → more room for content. */
   function injectEye() {
-    var hero = $('budget-hero'); if (!hero || $('bp-eye-btn')) return;
-    var b = document.createElement('button'); b.id = 'bp-eye-btn'; b.className = 'bp-eye'; b.title = 'إخفاء/إظهار المبالغ';
-    b.textContent = appData.privacyMode ? '🙈' : '👁️';
-    b.onclick = function (e) { e.stopPropagation(); BP.togglePrivacy(); };
-    hero.appendChild(b);
+    var h = document.querySelector('.app-header'); if (!h || h.getAttribute('data-bp')) { paintTopBar(); return; }
+    h.setAttribute('data-bp', '1'); h.classList.add('bp-topbar');
+    var w = document.createElement('div'); w.className = 'tb-row';
+    w.innerHTML = '<button class="tb-avatar" id="tb-avatar" onclick="bnNavigate(\'settings\')" aria-label="الإعدادات"></button>' +
+      '<div class="tb-text" onclick="BP.versionTap()"><div class="tb-hello" id="tb-hello"></div><div class="tb-date" id="tb-date"></div></div>' +
+      '<div class="tb-actions"><button class="tb-dev" id="tb-dev" onclick="BP.devBadge()" style="display:none">⚡ DEV</button>' +
+      '<button class="tb-btn" id="bp-eye-btn" onclick="BP.togglePrivacy()" aria-label="إخفاء المبالغ">👁️</button></div>';
+    h.appendChild(w);
+    paintTopBar();
+    setInterval(paintTopBar, 60000);
+    var last = new WeakMap();
+    document.addEventListener('scroll', function (e) {
+      var el = e.target; if (!el || !el.classList || !el.classList.contains('page')) return;
+      var st = el.scrollTop, prev = last.get(el) || 0; last.set(el, st);
+      if (st > prev + 6 && st > 60) h.classList.add('tb-hidden');
+      else if (st < prev - 6 || st < 20) h.classList.remove('tb-hidden');
+    }, true);
   }
-  wrap('renderSettings', function () { injectSettings(); renderSecurity(); var a = $('theme-auto-switch'); if (a) a.classList.toggle('active', !!appData.themeAuto); refreshPerm(); });
+  function paintTopBar() {
+    var hello = $('tb-hello'); if (!hello) return;
+    var now = new Date(), hr = now.getHours();
+    var greet = hr < 5 ? 'ليلة سعيدة 🌙' : hr < 12 ? 'صباح الخير ☀️' : hr < 18 ? 'مساء الخير 🌤️' : 'مساء الخير 🌙';
+    hello.textContent = greet + (appData.userName ? '، ' + appData.userName : '');
+    var dt = $('tb-date');
+    try { dt.textContent = now.toLocaleDateString('ar-EG-u-nu-latn', { weekday: 'long', day: 'numeric', month: 'long' }); } catch (e) { dt.textContent = ''; }
+    var av = $('tb-avatar');
+    if (av) {
+      if (appData.userPhoto) av.innerHTML = '<img src="' + appData.userPhoto + '" alt="">';
+      else av.textContent = (appData.userName || '👤').trim().charAt(0) || '👤';
+    }
+    var dev = $('tb-dev'); if (dev) dev.style.display = appData.creatorMode ? '' : 'none';
+    var e = $('bp-eye-btn'); if (e) e.textContent = appData.privacyMode ? '🙈' : '👁️';
+  }
+  BP.paintTopBar = paintTopBar;
+
+  /* Developer mode: tap the greeting in the top bar (or "رقم الإصدار" in Settings) 3 times quickly.
+     3 taps again → back to normal. Also: the switch in Settings or the ⚡ DEV badge. */
+  var _vt = 0, _vtT = null;
+  BP.versionTap = function () {
+    _vt++; clearTimeout(_vtT); _vtT = setTimeout(function () { _vt = 0; }, 2500);
+    haptic('tap');
+    var need = 3;
+    if (_vt >= need) { _vt = 0; clearTimeout(_vtT); BP.toggleDev(); return; }
+    if (_vt >= 9) toast('باقي ' + (need - _vt) + ' ' + (need - _vt === 1 ? 'ضغطة' : 'ضغطات') + (appData.creatorMode ? ' لإيقاف' : ' لتفعيل') + ' وضع المطور', 'info');
+  };
+  BP.toggleDev = function () {
+    try { secretClickCount = 2; handleSecretClick(); haptic(appData.creatorMode ? 'success' : 'tap'); }
+    catch (e) { appData.creatorMode = !appData.creatorMode; save(); if (typeof applyCreatorMode === 'function') applyCreatorMode(); }
+    paintDev(); paintTopBar();
+  };
+  BP.devBadge = function () { showModal('⚡', 'وضع المطور', 'وضع المطور مفعّل حاليًا. تحب توقفه وترجع للوضع العادي؟', function () { BP.toggleDev(); }); };
+  function paintDev() {
+    var r = $('bp-dev-row'); if (r) r.style.display = appData.creatorMode ? '' : 'none';
+    var s2 = $('dev-switch'); if (s2) s2.classList.toggle('active', !!appData.creatorMode);
+  }
+  wrap('applyCreatorMode', function () { paintDev(); paintTopBar(); });
+  wrap('renderProfileSection', function () { paintTopBar(); });
+
+  /* Table cells: the tiny 🧮 / ! icons sat on top of the inputs, so tapping near a corner while typing
+     opened the calculator. They are removed from the cells; instead a small toolbar appears above the
+     keyboard for the focused cell. The calculator opens ONLY when its button is pressed. */
+  var _cellInput = null, _cellHideT = null;
+  function cellBar() {
+    var b = $('bp-cellbar'); if (b) return b;
+    b = document.createElement('div'); b.id = 'bp-cellbar';
+    b.innerHTML = '<div class="cb-label" id="cb-label"></div><button data-a="calc">🧮 حاسبة</button><button data-a="note">📝 ملاحظة</button><button data-a="done" class="cb-done">✓ تم</button>';
+    b.addEventListener('pointerdown', function (e) { if (e.target.closest('button')) e.preventDefault(); });
+    b.addEventListener('mousedown', function (e) { if (e.target.closest('button')) e.preventDefault(); });
+    b.addEventListener('click', function (e) {
+      var btn = e.target.closest('button'); if (!btn || !_cellInput) return;
+      var inp = _cellInput, td = inp.closest('td'), a = btn.getAttribute('data-a');
+      haptic('tap');
+      if (a === 'done') { inp.blur(); hideCellBar(); return; }
+      hideCellBar();
+      if (a === 'calc') { var c = td && td.querySelector('.calc-icon-btn'); if (c) openCalcFor(c); }
+      if (a === 'note') { var n = td && td.querySelector('.note-icon-btn'); if (n) { try { inp.blur(); } catch (er) {} openNoteFor(n); } }
+    });
+    document.body.appendChild(b); return b;
+  }
+  function hideCellBar() { var b = $('bp-cellbar'); if (b) b.classList.remove('show'); }
+  document.addEventListener('focusin', function (e) {
+    var t = e.target;
+    if (!t || !t.matches || !t.matches('.day-table input')) return;
+    clearTimeout(_cellHideT); _cellInput = t;
+    var b = cellBar(), d = t.getAttribute('data-d'), ty = t.getAttribute('data-t'), name = 'الدخل';
+    if (ty !== 'i') { var c = (appData.categories || []).find(function (x) { return x.id === ty; }); name = c ? (c.icon + ' ' + c.name) : ty; }
+    $('cb-label').textContent = 'يوم ' + d + ' • ' + name;
+    b.classList.add('show');
+  });
+  document.addEventListener('focusout', function (e) {
+    var t = e.target; if (!t || !t.matches || !t.matches('.day-table input')) return;
+    _cellHideT = setTimeout(function () { var a = document.activeElement; if (!a || !a.matches || !a.matches('.day-table input')) hideCellBar(); }, 150);
+  });
+  wrap('renderSettings', function () { injectSettings(); renderSecurity(); paintDev(); var hs = $('haptics-switch'); if (hs) hs.classList.toggle('active', appData.hapticsEnabled !== false); var a = $('theme-auto-switch'); if (a) a.classList.toggle('active', !!appData.themeAuto); refreshPerm(); });
 
   /* ------------------------------------------------------------------ *
    * 14. Back button, deep links, lifecycle
@@ -706,6 +894,8 @@
         } else {
           if (appData.lockEnabled && _bgAt && Date.now() - _bgAt > 30000) lockScreen();
           try { renderDashboard(); } catch (e) {}
+          paintTopBar();
+          if (appData.notificationsEnabled && typeof scheduleNotifications === 'function') scheduleNotifications();
         }
       });
     }

@@ -106,7 +106,7 @@
 .bp-bar.over i { background: var(--danger) !important; }
 
 /* ---------- Privacy mode ---------- */
-.bp-eye { position: absolute; top: 16px; left: 56px; width: 32px; height: 32px; border-radius: 50%; border: none; background: rgba(255,255,255,.2); color: #fff; font-size: 15px; cursor: pointer; display: grid; place-items: center; z-index: 2; }
+.bp-eye-legacy { position: absolute; top: 16px; left: 56px; width: 32px; height: 32px; border-radius: 50%; border: none; background: rgba(255,255,255,.2); color: #fff; font-size: 15px; cursor: pointer; display: grid; place-items: center; z-index: 2; }
 .privacy-on #budget-display, .privacy-on #budget-sub, .privacy-on .stat-value, .privacy-on #recent-list, .privacy-on #financial-pulse,
 .privacy-on #daily-counter-container, .privacy-on #month-tiles-container, .privacy-on .day-table input, .privacy-on #expanded-month-content,
 .privacy-on .chart-legend, .privacy-on #page-stats canvas, .privacy-on .bp-num, .privacy-on #settings-profile-budget-desc, .privacy-on #ring-pct {
@@ -130,3 +130,52 @@
 .bp-key:active { background: rgba(255,255,255,.3); transform: scale(.94); }
 .bp-sheet .bp-dots { color: var(--primary); }
 .bp-sheet .bp-key { background: var(--input-bg); color: var(--text); border: 1px solid var(--card-border); }
+
+/* ===================== v1.1 ===================== */
+
+/* ---------- Compact smart top bar (replaces the tall header + red dot) ---------- */
+.app-header.bp-topbar { padding: 6px 14px 6px; text-align: start; transition: margin-top .25s ease, opacity .2s ease; z-index: 5; }
+.bp-topbar > h1, .bp-topbar > .subtitle, .bp-topbar > #creator-banner, #secret-btn { display: none !important; }
+.app-header.bp-topbar.tb-hidden { margin-top: -60px; opacity: 0; pointer-events: none; }
+.tb-row { display: flex; align-items: center; gap: 10px; height: 46px; }
+.tb-avatar { width: 38px; height: 38px; border-radius: 50%; border: 2px solid rgba(99,102,241,.35); background: var(--grad-primary); color: #fff; font: inherit; font-weight: 800; font-size: 16px; display: grid; place-items: center; overflow: hidden; padding: 0; cursor: pointer; flex-shrink: 0; box-shadow: 0 3px 10px rgba(99,102,241,.25); }
+.tb-avatar img { width: 100%; height: 100%; object-fit: cover; }
+.tb-text { flex: 1; min-width: 0; line-height: 1.25; }
+.tb-hello { font-size: 14.5px; font-weight: 800; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tb-date { font-size: 11.5px; color: var(--text-secondary); white-space: nowrap; }
+.tb-actions { display: flex; align-items: center; gap: 6px; }
+.tb-btn { width: 38px; height: 38px; border-radius: 12px; border: 1px solid var(--card-border); background: var(--card-bg); font-size: 17px; display: grid; place-items: center; cursor: pointer; box-shadow: var(--shadow); }
+.tb-btn:active, .tb-avatar:active { transform: scale(.93); }
+.tb-dev { height: 28px; padding: 0 10px; border-radius: 99px; border: none; font: inherit; font-size: 11px; font-weight: 900; letter-spacing: .5px; color: #fff; cursor: pointer; background: linear-gradient(135deg, #f59e0b, #ef4444, #8b5cf6); box-shadow: 0 3px 10px rgba(239,68,68,.3); }
+
+/* ---------- About section / version (tap 7× for developer mode) ---------- */
+.bp-ver-row { cursor: pointer; -webkit-user-select: none; user-select: none; }
+.bp-ver-row:active { opacity: .7; }
+.bp-ver-ic { font-size: 22px; }
+.bp-version { display: none; }
+
+/* ---------- Table cells: no more floating 🧮 / ! icons over the inputs ---------- */
+.day-table .calc-icon-btn { display: none !important; }
+.day-table .note-icon-btn { display: none !important; }
+.day-table .note-icon-btn.has-note { display: block !important; opacity: 1 !important; pointer-events: none !important; width: 7px !important; height: 7px !important; top: 3px !important; right: 3px !important; padding: 0 !important; border: none !important; border-radius: 50% !important; background: var(--warning) !important; font-size: 0 !important; color: transparent !important; box-shadow: 0 0 0 2px var(--card-bg); }
+
+/* Toolbar shown above the keyboard while a table cell is focused */
+#bp-cellbar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 900; display: flex; align-items: center; gap: 6px; padding: 8px 10px calc(8px + env(safe-area-inset-bottom, 0px)); background: var(--toast-bg, #fff); border-top: 1px solid var(--card-border); box-shadow: 0 -6px 20px rgba(0,0,0,.12); transform: translateY(110%); transition: transform .18s ease; }
+.dark-mode #bp-cellbar { background: #17143a; }
+#bp-cellbar.show { transform: translateY(0); }
+#bp-cellbar .cb-label { flex: 1; min-width: 0; font-size: 12.5px; font-weight: 700; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#bp-cellbar button { height: 36px; padding: 0 12px; border-radius: 10px; border: 1px solid var(--card-border); background: var(--input-bg); color: var(--text); font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; white-space: nowrap; }
+#bp-cellbar button.cb-done { background: var(--grad-primary); color: #fff; border: none; }
+#bp-cellbar button:active { transform: scale(.95); }
+
+/* ---------- Budget states ---------- */
+.month-tile .mt-carry { font-size: 9.5px; margin-top: 3px; font-weight: 600; }
+.month-tile .mt-carry.neg { color: var(--danger); }
+.month-tile .mt-carry.pos { color: var(--success); }
+#budget-sub.over { color: #fff; background: rgba(239,68,68,.85); display: inline-block; padding: 3px 10px; border-radius: 99px; font-weight: 700; }
+.stat-value.neg { color: var(--danger) !important; }
+/* The new smart top bar replaces the old optional profile bar */
+#profile-bar { display: none !important; }
+#app.with-profile-bar { padding-top: 0 !important; }
+#app.with-profile-bar .page { top: 0 !important; }
+.setting-row:has(#profile-bar-switch) { display: none !important; }

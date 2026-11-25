@@ -5713,12 +5713,53 @@ function calcMonthData(mIdx) {
   cats.forEach(c => { if (c && c.id) totalSpent += catTotals[c.id] || 0; });
   const totalTransport = catTotals['t'] || 0;
   const totalPersonal = catTotals['p'] || 0;
-  const allocation = appData.budget / appData.months;
+  // FIX: rolling allocation — each month gets (what is left of the whole budget) ÷ (months left).
+  // Overspending in month 1 now reduces month 2 (e.g. budget 1000 / 2 months, spent 600 in month 1 → month 2 = 400),
+  // and when the whole budget is gone the following months show 0 instead of a fake green share.
+  const roll = getRollingAllocation(mIdx);
+  const allocation = roll.allocation;
+  const baseAllocation = appData.months > 0 ? appData.budget / appData.months : appData.budget;
+  const carryOver = mIdx > 0 ? allocation - baseAllocation : 0;
+  const exhausted = roll.pool <= 0;
   const remaining = allocation + totalIncome - totalSpent;
   const savingsGoal = appData.savingsGoals['m' + mIdx] || 0;
   const saved = allocation + totalIncome - totalSpent;
   const savingsPct = savingsGoal > 0 ? Math.round((saved / savingsGoal) * 100) : 0;
-  return { totalIncome, totalTransport, totalPersonal, totalSpent, allocation, remaining, days, catTotals, savingsGoal, savingsPct };
+  return { totalIncome, totalTransport, totalPersonal, totalSpent, allocation, remaining, days, catTotals, savingsGoal, savingsPct, baseAllocation, carryOver, exhausted, poolBefore: roll.pool };
+}
+
+// Raw income/spent of one month (no allocation logic) — used by the rolling allocation.
+function _monthRawTotals(mIdx) {
+  const days = getDaysInMonth(mIdx);
+  const cats = appData.categories || [];
+  let inc = 0, sp = 0;
+  for (let d = 1; d <= days; d++) {
+    inc += getVal(mIdx, d, 'i');
+    for (let i = 0; i < cats.length; i++) { const c = cats[i]; if (c && c.id) sp += getVal(mIdx, d, c.id); }
+  }
+  return { inc: inc, sp: sp };
+}
+
+// Rolling allocation for month mIdx = (budget − what previous months consumed) ÷ (months left).
+// A month that is still running reserves its full share (only OVERspending is taken from the next months
+// right away); once a month has ended, whatever it saved rolls over to the next months.
+// Example: 1000 over 2 months, 600 spent in month 1 → month 2 = 400; everything spent → month 2 = 0.
+function getRollingAllocation(mIdx) {
+  const months = Math.max(1, Number(appData.months) || 1);
+  const budget = Number(appData.budget) || 0;
+  let start; try { start = _startDate(); } catch (e) { start = new Date(); }
+  const today = new Date();
+  let consumed = 0, alloc = budget / months;
+  for (let k = 0; k <= mIdx; k++) {
+    const left = Math.max(1, months - k);
+    alloc = Math.max(0, budget - consumed) / left;
+    if (k === mIdx) break;
+    const r = _monthRawTotals(k);
+    const net = r.sp - r.inc;
+    const ended = new Date(start.getFullYear(), start.getMonth() + k + 1, start.getDate()) <= today;
+    consumed += ended ? net : Math.max(alloc, net);
+  }
+  return { allocation: alloc, pool: budget - consumed };
 }
 
 function calcAllData() {
@@ -5928,7 +5969,15 @@ function renderDashboard() {
   const pct = total > 0 ? Math.min((spent / total) * 100, 100) : 0;
 
   document.getElementById('budget-display').textContent = fmt(appData.budget);
-  document.getElementById('budget-sub').textContent = 'المتبقي: ' + fmt(all.remaining) + ' ' + (appData.currencySymbol || 'ر.س');
+  const _cur = ' ' + (appData.currencySymbol || 'ر.س');
+  const _sub = document.getElementById('budget-sub');
+  if (all.remaining < 0) {
+    _sub.textContent = 'المتبقي: 0' + _cur + ' — ⛔ تجاوزت الميزانية بـ ' + fmt(Math.round(-all.remaining * 100) / 100) + _cur;
+    _sub.classList.add('over');
+  } else {
+    _sub.textContent = 'المتبقي: ' + fmt(Math.round(all.remaining * 100) / 100) + _cur;
+    _sub.classList.remove('over');
+  }
 
   const circumference = 2 * Math.PI * 65;
   const offset = circumference - (pct / 100) * circumference;
@@ -5943,7 +5992,9 @@ function renderDashboard() {
   animateValue('ring-pct', 0, Math.round(pct), 350, '%');
   animateValue('stat-income', 0, all.totalIncome, 300);
   animateValue('stat-expense', 0, all.totalSpent, 300);
-  animateValue('stat-remain', 0, all.remaining, 300);
+  animateValue('stat-remain', 0, Math.max(0, all.remaining), 300);
+  const _sr = document.getElementById('stat-remain');
+  if (_sr) _sr.classList.toggle('neg', all.remaining <= 0 && all.totalSpent > 0);
 
   renderRecentTransactions();
   renderDailyCounter();
@@ -6078,7 +6129,7 @@ function renderTable() {
     const md = calcMonthData(m);
     const hijriName = getHijriMonthName(m);
     const gregName = getGregorianMonthName(m);
-    const remainClass = md.remaining >= 0 ? 'pos' : 'neg';
+    const remainClass = (md.remaining > 0 || (md.remaining === 0 && !md.exhausted)) ? 'pos' : 'neg';
 
     html += '<div class="month-tile" onclick="expandMonth(' + m + ')">';
     if (appData.months > 1) {
@@ -6086,8 +6137,17 @@ function renderTable() {
     }
     html += '<div class="mt-hijri">' + hijriName + '</div>';
     html += '<div class="mt-gregorian">' + gregName + '</div>';
-    html += '<div class="mt-allocation">\u0627\u0644\u062A\u062E\u0635\u064A\u0635: ' + fmt(md.allocation) + '</div>';
-    html += '<div class="mt-remaining ' + remainClass + '">\u0627\u0644\u0645\u062A\u0628\u0642\u064A: ' + fmt(md.remaining) + '</div>';
+    html += '<div class="mt-allocation">\u0627\u0644\u062A\u062E\u0635\u064A\u0635: ' + fmt(Math.round(md.allocation * 100) / 100) + '</div>';
+    if (md.exhausted && md.totalSpent <= 0 && md.totalIncome <= 0) {
+      html += '<div class="mt-remaining neg">⛔ الميزانية انتهت</div>';
+    } else if (md.remaining < 0) {
+      html += '<div class="mt-remaining neg">⛔ تجاوزت بـ ' + fmt(Math.round(-md.remaining * 100) / 100) + '</div>';
+    } else {
+      html += '<div class="mt-remaining ' + remainClass + '">\u0627\u0644\u0645\u062A\u0628\u0642\u064A: ' + fmt(Math.round(md.remaining * 100) / 100) + '</div>';
+    }
+    if (m > 0 && Math.abs(md.carryOver) >= 0.5 && !md.exhausted) {
+      html += '<div class="mt-carry ' + (md.carryOver < 0 ? 'neg' : 'pos') + '">↪ ' + (md.carryOver < 0 ? 'نقص ' : 'زيادة ') + fmt(Math.round(Math.abs(md.carryOver) * 100) / 100) + ' من الشهور السابقة</div>';
+    }
     if (md.savingsGoal > 0) {
       const sp = Math.min(md.savingsPct, 100);
       const scls = sp > 66 ? '' : (sp > 33 ? 'mid' : 'low');
@@ -10183,14 +10243,18 @@ function renderDailyCounter() {
   }
   if (mIdx >= appData.months) { container.innerHTML = ''; return; }
   const md = calcMonthData(mIdx);
-  if (md.allocation <= 0) { container.innerHTML = ''; return; }
-  const pct = Math.round((md.totalSpent / md.allocation) * 100);
+  const base = md.allocation + md.totalIncome;
+  if (base <= 0) {
+    container.innerHTML = '<div class="daily-counter-banner danger">⛔ الميزانية انتهت — صرفت ' + fmt(md.totalSpent) + ' هذا الشهر</div>';
+    return;
+  }
+  const pct = Math.round((md.totalSpent / base) * 100);
   let cls = '';
   if (pct >= 75) cls = 'danger';
   else if (pct >= 50) cls = 'warning';
-
+  const r2 = Math.round(md.remaining * 100) / 100;
   container.innerHTML = '<div class="daily-counter-banner ' + cls + '">' +
-    'يوم ' + today + ' من الشهر | صرفت ' + fmt(md.totalSpent) + ' من ' + fmt(md.allocation) + ' | المتبقي: ' + fmt(md.remaining) +
+    'يوم ' + today + ' من الشهر | صرفت ' + fmt(md.totalSpent) + ' من ' + fmt(Math.round(base * 100) / 100) + ' | ' + (r2 < 0 ? '⛔ تجاوزت بـ ' + fmt(-r2) : 'المتبقي: ' + fmt(r2)) +
   '</div>';
 }
 

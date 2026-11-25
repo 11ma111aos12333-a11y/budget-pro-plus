@@ -59,8 +59,8 @@
     <!-- Notifications (Android 13+ asks the user at runtime) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
-    <!-- Daily reminders use inexact alarms -> the restricted exact-alarm permission is removed (Play policy friendly) -->
-    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" tools:node="remove" />
+    <!-- Exact reminders (user grants it from "Alarms & reminders"; asked from the in-app permissions screen) -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 
     <!-- Storage (runtime request on Android 6 – 12; Android 13+ uses scoped storage, no prompt needed) -->
