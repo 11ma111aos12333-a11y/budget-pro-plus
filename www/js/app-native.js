@@ -879,6 +879,7 @@
   function handleBack() {
     var App = plug('App');
     if (_locked) { App && App.minimizeApp && App.minimizeApp(); return; }
+    if (BP.tourActive && BP.tourActive()) return BP.endTour();
     var sh = openSheets(); if (sh.length) { BP.closeSheet(sh[sh.length - 1].id); return; }
     if (vis('photo-viewer-overlay', 'show')) return closePhotoViewer();
     if (vis('modal-overlay', 'show')) return closeModal();
