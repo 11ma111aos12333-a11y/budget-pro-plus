@@ -5770,7 +5770,7 @@ function getRollingAllocation(mIdx) {
     if (k === mIdx) break;
     const r = _monthRawTotals(k);
     const net = r.sp - r.inc;
-    const ended = new Date(start.getFullYear(), start.getMonth() + k + 1, start.getDate()) <= today;
+    const ended = new Date(start.getFullYear(), start.getMonth() + k + 1, 1) <= today; // plan months are calendar months
     consumed += ended ? net : Math.max(alloc, net);
   }
   return { allocation: alloc, pool: budget - consumed };
@@ -10942,5 +10942,6 @@ function onProfileBarPhotoClick() {
 </script>
 <script src="js/app-native.js"></script>
 <script src="js/app-tour.js"></script>
+<script src="js/app-integrity.js"></script>
 </body>
 </html>

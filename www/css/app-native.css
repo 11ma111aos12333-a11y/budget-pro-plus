@@ -293,3 +293,23 @@ button, .bn-tab, .month-tile, .stat-card, .bp-row, .ai-chip, .quick-btn, label, 
   -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
 }
 input, textarea, [contenteditable], .msg-bubble, .chat-message, .message-content { -webkit-user-select: text; user-select: text; }
+/* ===================== v1.0.9 — integrity / findability ===================== */
+#bp-snack{position:fixed;left:12px;right:12px;bottom:calc(84px + env(safe-area-inset-bottom,0px));z-index:1300;display:flex;align-items:center;gap:8px;
+  padding:12px 12px 12px 8px;border-radius:16px;background:#1e1b4b;color:#fff;font-size:13px;font-weight:600;line-height:1.5;box-shadow:0 10px 30px rgba(0,0,0,.28);
+  transform:translate3d(0,140%,0);opacity:0;transition:transform .28s cubic-bezier(.22,.8,.3,1),opacity .2s;pointer-events:none}
+#bp-snack.show{transform:none;opacity:1;pointer-events:auto}
+body.bp-on-ai #bp-snack{bottom:calc(86px + env(safe-area-inset-bottom,0px))}
+#bp-snack .bs-msg{flex:1;min-width:0}
+#bp-snack .bs-act{flex-shrink:0;border:0;border-radius:12px;padding:9px 12px;background:#818cf8;color:#fff;font:inherit;font-weight:800;font-size:12.5px;white-space:nowrap;cursor:pointer}
+#bp-snack .bs-x{flex-shrink:0;border:0;background:transparent;color:rgba(255,255,255,.7);font-size:14px;padding:8px;cursor:pointer}
+.day-table tr.bp-today td{background:rgba(99,102,241,.10)}
+.day-table tr.bp-today td.day-num{box-shadow:inset -3px 0 0 var(--primary)}
+.day-table tr.bp-today td.day-num span:first-child::after{content:" ●";font-size:8px;color:var(--primary);vertical-align:middle}
+.day-table td.bp-flash{animation:bpFlash 1.3s ease 2}
+@keyframes bpFlash{0%,100%{box-shadow:none}40%{box-shadow:inset 0 0 0 3px #f59e0b;background:rgba(245,158,11,.18)}}
+.month-tile .mt-spent{font-size:11px;color:var(--text-secondary);margin-top:2px}
+.month-tile.is-current{outline:2px solid var(--primary);outline-offset:-2px}
+.month-tile .mt-now{display:inline-block;font-size:10px;font-weight:800;color:#fff;background:var(--primary);border-radius:999px;padding:2px 8px;margin-bottom:4px}
+.recent-item.bp-tappable{cursor:pointer}
+.recent-item.bp-tappable:active{transform:scale(.98)}
+#modal-confirm.bp-danger{background:#ef4444!important;border-color:#ef4444!important}
