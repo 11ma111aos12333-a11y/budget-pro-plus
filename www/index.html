@@ -3849,6 +3849,8 @@ html.ob-on #app{display:none!important}
 .page{will-change:auto}
 #pages-container.pt-busy{pointer-events:none}
 #pt-curtain{display:none;position:absolute;inset:0;z-index:50;pointer-events:none;will-change:transform;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:0 28px;text-align:center;background:linear-gradient(160deg,var(--bg-start),var(--bg-end))}
+#pt-curtain .pt-cin{display:flex;flex-direction:column;align-items:center;gap:10px;will-change:transform,opacity}
+#pt-curtain{will-change:transform,opacity;contain:strict}
 #pt-curtain .pt-clogo{font-size:64px;line-height:1}
 #pt-curtain .pt-cname{font-size:26px;font-weight:900;color:var(--primary)}
 #pt-curtain .pt-cphrase{font-size:15px;font-weight:700;color:var(--text-secondary);line-height:1.6}
@@ -5255,14 +5257,14 @@ const pageOrder = ['dashboard', 'table', 'stats', 'ai', 'settings'];
 // (2) animations use only transform + opacity via Web Animations (run on the GPU compositor),
 // (3) taps during a transition are ignored on the pages area, and a new switch settles the old one instantly.
 const PT_STYLES = [
-  { id: 'none', e: '⚡', t: 'فوري' },
+  { id: 'curtain', e: '🎬', t: 'ستارة من الأعلى' },
   { id: 'fade', e: '🌫️', t: 'تلاشي' },
   { id: 'fadeThrough', e: '✨', t: 'اختفاء ثم ظهور' },
-  { id: 'curtain', e: '🎬', t: 'ستارة من الأعلى' },
   { id: 'slide', e: '↔️', t: 'انزلاق جانبي' },
   { id: 'rise', e: '🔼', t: 'صعود' },
-  { id: 'drop', e: '🔽', t: 'نزول من الأعلى' },
-  { id: 'zoom', e: '🔍', t: 'تكبير' }
+  { id: 'drop', e: '🔽', t: 'نزول ناعم' },
+  { id: 'zoom', e: '🔍', t: 'تكبير' },
+  { id: 'none', e: '🚫', t: 'لا شيء' }
 ];
 const PT_ORDER = ['dashboard', 'table', 'stats', 'ai', 'settings'];
 let _pt = null;
@@ -5273,22 +5275,24 @@ function getPTStyle() {
   return appData.pageTransitions === false ? 'none' : 'curtain';
 }
 
-function _ptFx(id, dir) {
-  const E = 'cubic-bezier(.22,.8,.3,1)', X = 'cubic-bezier(.4,0,1,1)';
-  const T0 = 'translate3d(0,0,0)';
+// Every effect uses the same brand cover (logo + name + phrase) over the pages area:
+//   1) the cover ENTERS with the effect's motion, 2) the page is swapped + rendered while covered
+//   (any rendering jank is invisible), 3) the logo HOLDS so it can be seen, 4) the cover LEAVES with the
+//   mirrored motion. Enter and leave have the same duration and the logo itself fades in / fades out
+//   inside the cover, so appearance and disappearance are balanced in every mode.
+// Only transform + opacity are animated (GPU compositor) → smooth even when the main thread is busy.
+const PT_IN = 280, PT_HOLD = 480, PT_OUT = 280, PT_RETARGET = 170;
+function _ptCoverFx(id, dir) {
+  const S = 'translate3d(0,0,0)', ON = { opacity: 1, transform: S };
+  const side = dir > 0 ? -1 : 1; // RTL: a tab further to the left sweeps in from the left
   const fx = {
-    fade:        { o: [[{ opacity: 1 }, { opacity: 0 }], { duration: 240, easing: 'linear' }],
-                   i: [[{ opacity: 0 }, { opacity: 1 }], { duration: 240, easing: 'linear' }] },
-    fadeThrough: { o: [[{ opacity: 1 }, { opacity: 0 }], { duration: 130, easing: X }],
-                   i: [[{ opacity: 0 }, { opacity: 1 }], { duration: 170, delay: 130, easing: E }] },
-    slide:       { o: [[{ opacity: 1, transform: T0 }, { opacity: 0, transform: 'translate3d(' + (dir * 28) + '%,0,0)' }], { duration: 300, easing: E }],
-                   i: [[{ opacity: 0, transform: 'translate3d(' + (-dir * 28) + '%,0,0)' }, { opacity: 1, transform: T0 }], { duration: 300, easing: E }] },
-    rise:        { o: [[{ opacity: 1 }, { opacity: 0 }], { duration: 160, easing: 'linear' }],
-                   i: [[{ opacity: 0, transform: 'translate3d(0,28px,0)' }, { opacity: 1, transform: T0 }], { duration: 300, easing: E }] },
-    drop:        { o: [[{ opacity: 1, transform: T0 }, { opacity: 0, transform: 'translate3d(0,24px,0)' }], { duration: 200, easing: X }],
-                   i: [[{ opacity: 0, transform: 'translate3d(0,-36px,0)' }, { opacity: 1, transform: T0 }], { duration: 300, easing: E }] },
-    zoom:        { o: [[{ opacity: 1, transform: 'scale(1)' }, { opacity: 0, transform: 'scale(1.05)' }], { duration: 220, easing: X }],
-                   i: [[{ opacity: 0, transform: 'scale(.95)' }, { opacity: 1, transform: 'scale(1)' }], { duration: 300, easing: E }] }
+    curtain:     { i: [{ opacity: 1, transform: 'translate3d(0,-101%,0)' }, ON], o: [ON, { opacity: 1, transform: 'translate3d(0,101%,0)' }], ease: 'cubic-bezier(.65,0,.35,1)' },
+    fade:        { i: [{ opacity: 0, transform: S }, ON], o: [ON, { opacity: 0, transform: S }], ease: 'cubic-bezier(.4,0,.2,1)' },
+    fadeThrough: { i: [{ opacity: 0, transform: S }, ON], o: [ON, { opacity: 0, transform: S }], ease: 'cubic-bezier(.4,0,.2,1)', seq: true },
+    slide:       { i: [{ opacity: 1, transform: 'translate3d(' + (side * 101) + '%,0,0)' }, ON], o: [ON, { opacity: 1, transform: 'translate3d(' + (-side * 101) + '%,0,0)' }], ease: 'cubic-bezier(.65,0,.35,1)' },
+    rise:        { i: [{ opacity: 1, transform: 'translate3d(0,101%,0)' }, ON], o: [ON, { opacity: 1, transform: 'translate3d(0,-101%,0)' }], ease: 'cubic-bezier(.65,0,.35,1)' },
+    drop:        { i: [{ opacity: 0, transform: 'translate3d(0,-48px,0)' }, ON], o: [ON, { opacity: 0, transform: 'translate3d(0,48px,0)' }], ease: 'cubic-bezier(.33,0,.2,1)' },
+    zoom:        { i: [{ opacity: 0, transform: 'scale(.86)' }, ON], o: [ON, { opacity: 0, transform: 'scale(1.12)' }], ease: 'cubic-bezier(.33,0,.2,1)' }
   };
   return fx[id] || fx.fade;
 }
@@ -5308,69 +5312,90 @@ function _ptCurtain() {
   if (!c) {
     c = document.createElement('div');
     c.id = 'pt-curtain';
-    c.innerHTML = '<div class="pt-clogo">💰</div><div class="pt-cname">ميزانية Pro+</div><div class="pt-cphrase"></div>';
+    c.innerHTML = '<div class="pt-cin"><div class="pt-clogo">💰</div><div class="pt-cname">ميزانية Pro+</div><div class="pt-cphrase"></div></div>';
     document.getElementById('pages-container').appendChild(c);
   }
   return c;
 }
+function _ptSnap(el) { const cs = getComputedStyle(el); return { opacity: +cs.opacity, transform: cs.transform === 'none' ? 'translate3d(0,0,0)' : cs.transform }; }
 
-// Settle a running transition immediately (cancel animations, apply final DOM state).
-function _ptFinish(interrupted) {
-  if (!_pt) return;
+// Settle a running transition immediately. keepCover=true leaves the cover where it is visually
+// (used when another tab is tapped mid-transition: the cover glides back to "covered" instead of flashing).
+function _ptFinish(interrupted, keepCover) {
+  if (!_pt) return null;
   const t = _pt; _pt = null;
-  clearTimeout(t.timer);
+  let snap = null;
+  const c = document.getElementById('pt-curtain');
+  if (keepCover && c && c.style.display !== 'none') snap = { c: _ptSnap(c), n: _ptSnap(c.firstChild) };
+  clearTimeout(t.timer); clearTimeout(t.hold);
   t.anims.forEach(function (a) { try { a.cancel(); } catch (e) {} });
-  t.end(interrupted);
+  t.end(interrupted, !!snap);
+  return snap;
 }
 
-function _ptRun(style, oldEl, newEl, dir, render, after) {
+function _ptRun(style, oldEl, newEl, dir, render, after, from) {
   const pc = document.getElementById('pages-container');
-  const t = _pt = { anims: [], timer: 0, swapped: false, rendered: false };
-  const swap = function () { if (t.swapped) return; t.swapped = true; oldEl.classList.remove('active'); newEl.classList.add('active'); };
+  const t = _pt = { anims: [], timer: 0, hold: 0, swapped: false, rendered: false };
+  const swap = function () { if (t.swapped) return; t.swapped = true; if (oldEl !== newEl) oldEl.classList.remove('active'); newEl.classList.add('active'); };
   const ensureRender = function () { if (t.rendered) return; t.rendered = true; render(); };
-  t.end = function (interrupted) {
-    swap(); ensureRender();
-    oldEl.style.willChange = ''; newEl.style.willChange = '';
+  const c = _ptCurtain(), inner = c.firstChild;
+  t.end = function (interrupted, keepCover) {
+    // Rapid tapping (A→B→C): B is still under the cover and is being left right away → don't spend time
+    // rendering a page nobody will see (it is re-rendered whenever it is opened again).
+    swap(); if (!(interrupted && keepCover)) ensureRender();
     pc.classList.remove('pt-busy');
-    const c = document.getElementById('pt-curtain'); if (c) c.style.display = 'none';
+    if (!keepCover) c.style.display = 'none';
     if (!interrupted) after();
   };
   const fin = function () { if (_pt === t) _ptFinish(); };
+  const live = function () { return _pt === t; };
   pc.classList.add('pt-busy');
 
-  if (style === 'curtain') {
-    // Cover from the top, swap + render while covered (jank is hidden), then pull the curtain down.
-    const c = _ptCurtain(); c.style.display = 'flex'; c.querySelector('.pt-cphrase').textContent = _ptNextPhrase();
-    const ease = 'cubic-bezier(.65,0,.35,1)';
-    const a1 = c.animate([{ transform: 'translate3d(0,-101%,0)' }, { transform: 'translate3d(0,0,0)' }], { duration: 260, easing: ease, fill: 'both' });
-    t.anims = [a1];
-    t.timer = setTimeout(fin, 2800);
-    a1.finished.then(function () {
-      if (_pt !== t) return;
-      swap(); ensureRender();
-      setTimeout(function () {   // brief hold so the logo + phrase can be read
-        if (_pt !== t) return;
-        requestAnimationFrame(function () {
-          if (_pt !== t) return;
-          const a2 = c.animate([{ transform: 'translate3d(0,0,0)' }, { transform: 'translate3d(0,101%,0)' }], { duration: 300, easing: ease, fill: 'both' });
-          a1.cancel(); t.anims = [a2];
-          a2.finished.then(fin).catch(function () {});
-        });
-      }, 740);
-    }).catch(function () {});
-    return;
-  }
+  const fx = _ptCoverFx(style, dir);
+  c.style.display = 'flex';
+  if (!from) c.querySelector('.pt-cphrase').textContent = _ptNextPhrase();
+  const opt = function (d, delay) { return { duration: d, delay: delay || 0, easing: fx.ease, fill: 'both' }; };
+  // logo inside the cover: fades in after the cover starts, fades out before the cover finishes leaving
+  const LOGO_IN = [{ opacity: 0, transform: 'translate3d(0,10px,0) scale(.96)' }, { opacity: 1, transform: 'translate3d(0,0,0) scale(1)' }];
+  const LOGO_OUT = [{ opacity: 1, transform: 'translate3d(0,0,0) scale(1)' }, { opacity: 0, transform: 'translate3d(0,-10px,0) scale(1.02)' }];
 
-  // Other effects: make new page visible, do the heavy render first, then animate both pages together.
-  newEl.classList.add('active');
-  ensureRender();
-  oldEl.style.willChange = 'opacity, transform'; newEl.style.willChange = 'opacity, transform';
-  const fx = _ptFx(style, dir);
-  const mk = function (el, f) { return el.animate(f[0], Object.assign({ fill: 'both' }, f[1])); };
-  t.anims = [mk(oldEl, fx.o), mk(newEl, fx.i)];
-  const total = Math.max(fx.o[1].duration + (fx.o[1].delay || 0), fx.i[1].duration + (fx.i[1].delay || 0));
-  t.timer = setTimeout(fin, total + 150);
-  Promise.all(t.anims.map(function (a) { return a.finished; })).then(fin).catch(function () {});
+  let aIn, nIn;
+  if (from) {           // retarget: glide from wherever the cover is now back to fully covered
+    aIn = c.animate([from.c, { opacity: 1, transform: 'translate3d(0,0,0)' }], opt(PT_RETARGET));
+    nIn = inner.animate([from.n, LOGO_IN[1]], opt(PT_RETARGET));
+  } else if (fx.seq) {  // fade-through: background first, then the logo
+    aIn = c.animate(fx.i, opt(PT_IN * 0.55));
+    nIn = inner.animate(LOGO_IN, opt(PT_IN * 0.6, PT_IN * 0.4));
+  } else {
+    aIn = c.animate(fx.i, opt(PT_IN));
+    nIn = inner.animate(LOGO_IN, opt(PT_IN * 0.75, PT_IN * 0.25));
+  }
+  t.anims = [aIn, nIn];
+  t.timer = setTimeout(fin, 3200); // safety net
+
+  Promise.all([aIn.finished, nIn.finished]).then(function () {
+    if (!live()) return;
+    const t0 = performance.now();
+    swap(); ensureRender();                       // heavy work happens while fully covered
+    const spent = performance.now() - t0;
+    const hold = Math.max(from ? 120 : 180, (from ? 260 : PT_HOLD) - spent);
+    t.hold = setTimeout(function () {
+      if (!live()) return;
+      requestAnimationFrame(function () {
+        if (!live()) return;
+        let aOut, nOut;
+        if (fx.seq) {
+          nOut = inner.animate(LOGO_OUT, opt(PT_OUT * 0.6));
+          aOut = c.animate(fx.o, opt(PT_OUT * 0.55, PT_OUT * 0.45));
+        } else {
+          nOut = inner.animate(LOGO_OUT, opt(PT_OUT * 0.7));
+          aOut = c.animate(fx.o, opt(PT_OUT));
+        }
+        aIn.cancel(); nIn.cancel(); t.anims = [aOut, nOut];
+        Promise.all([aOut.finished, nOut.finished]).then(fin).catch(function () {});
+      });
+    }, hold);
+  }).catch(function () {});
 }
 
 // Short preview when the user picks an effect in Settings (plays on the current page).
@@ -5378,15 +5403,15 @@ function _ptDemo(id) {
   if (id === 'none' || _pt) return;
   const el = document.getElementById('page-' + currentPage);
   if (!el) return;
-  if (id === 'curtain') _ptRun('curtain', el, el, 1, function () {}, function () {});
-  else { const f = _ptFx(id, 1).i; el.animate(f[0], Object.assign({ fill: 'none' }, f[1])); }
+  _ptRun(id, el, el, 1, function () {}, function () {});
 }
 
 let prevPageBeforeAI = 'dashboard';
 
 function switchPage(page) {
   if (page === currentPage) return;
-  _ptFinish(true); // settle any running transition first
+  // Tapped again mid-transition → keep the cover on screen and glide it back to "covered" (no flash)
+  const _from = _ptFinish(true, getPTStyle() !== 'none');
   if (page === 'ai') prevPageBeforeAI = currentPage;
 
   const oldPage = document.getElementById('page-' + currentPage);
@@ -5428,11 +5453,12 @@ function switchPage(page) {
   };
 
   if (style === 'none') {
+    const c = document.getElementById('pt-curtain'); if (c) c.style.display = 'none';
     oldPage.classList.remove('active');
     newPage.classList.add('active');
     render(); after();
   } else {
-    _ptRun(style, oldPage, newPage, dir, render, after);
+    _ptRun(style, oldPage, newPage, dir, render, after, _from);
   }
 }
 
