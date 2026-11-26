@@ -243,7 +243,12 @@ body.bp-on-ai .app-header.bp-topbar { display: none !important; }
 #page-ai .ai-header-avatar::after { width: 9px; height: 9px; }
 #page-ai .ai-page-title { font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
 #page-ai .ai-page-subtitle { font-size: 10.5px; }
-#page-ai .ai-page-header > div:last-child > .ai-back-btn { display: none; } /* "next page" arrow: redundant */
+/* Back (→, right edge) and Next (←, left edge) arrows: same size & style, mirrored for RTL */
+#page-ai .ai-page-header { gap: 6px; }
+#page-ai .ai-page-header > div:last-child { gap: 4px !important; }
+#page-ai #ai-nav-next { margin: 0 2px 0 0; }
+#page-ai .ai-back-btn svg { display: block; }
+@media (max-width: 370px) { #page-ai .ai-header-avatar { display: none; } }
 #page-ai .convo-list { padding: 6px 12px; margin: 0; }
 #page-ai .convo-list:not(:has(.convo-tab + .convo-tab)) { display: none; } /* hide when there is only one conversation */
 #page-ai .chat-api-warning { display: flex !important; align-items: center; justify-content: space-between; gap: 8px; text-align: start; margin: 6px 10px 0; padding: 6px 6px 6px 12px; font-size: 12.5px; border-radius: 12px; }
@@ -313,3 +318,43 @@ body.bp-on-ai #bp-snack{bottom:calc(86px + env(safe-area-inset-bottom,0px))}
 .recent-item.bp-tappable{cursor:pointer}
 .recent-item.bp-tappable:active{transform:scale(.98)}
 #modal-confirm.bp-danger{background:#ef4444!important;border-color:#ef4444!important}
+
+/* ---------- v1.0.10: developer-mode tap counter ---------- */
+#bp-dev-hint { position: fixed; left: 50%; bottom: calc(96px + env(safe-area-inset-bottom, 0px)); transform: translate(-50%, 12px); z-index: 4000;
+  background: rgba(17, 24, 39, .92); color: #fff; font-size: 13px; font-weight: 700; padding: 9px 16px; border-radius: 999px; white-space: nowrap;
+  opacity: 0; pointer-events: none; transition: opacity .18s ease, transform .18s ease; box-shadow: 0 6px 20px rgba(0,0,0,.25); }
+#bp-dev-hint.show { opacity: 1; transform: translate(-50%, 0); }
+.bp-ver-row.bp-ver-pulse .bp-ver-ic { animation: bpVerPulse .22s ease; }
+@keyframes bpVerPulse { 50% { transform: scale(1.25); } }
+
+/* ---------- v1.0.10: financial tips (notifications + library) ---------- */
+.bp-tips-box { box-sizing: border-box; max-width: 100%; overflow: hidden; margin-top: 10px; padding: 12px; border-radius: 14px; background: var(--input-bg); border: 1px solid var(--card-border); }
+.bp-tips-box .bp-tips-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.bp-tips-box .sr-label { font-weight: 700; }
+.bp-tips-box .sr-desc { font-size: 12px; line-height: 1.6; margin-top: 2px; }
+.bp-tips-grid { display: grid; grid-template-columns: 1.15fr 1fr; gap: 8px; margin-top: 10px; }
+.bp-tips-grid label { min-width: 0; display: flex; flex-direction: column; gap: 4px; font-size: 11.5px; color: var(--text-secondary); }
+.bp-tips-grid select { width: 100%; min-width: 0; box-sizing: border-box; padding: 9px 10px; border: 1.5px solid var(--input-border); border-radius: 10px; background: var(--card-bg, var(--input-bg)); color: var(--text); font-size: 13px; font-family: inherit; }
+.bp-tips-next { margin-top: 8px; font-size: 12px; color: var(--text-secondary); line-height: 1.6; }
+.bp-tips-btns { display: flex; gap: 8px; margin-top: 10px; }
+.bp-tips-btns .action-btn { flex: 1; margin: 0; padding: 10px 8px; font-size: 13px; }
+.bp-tip-card { border-radius: 16px; padding: 16px; background: var(--input-bg); border: 1px solid var(--card-border); }
+.bp-tip-badge { display: inline-flex; align-items: center; gap: 4px; font-size: 11.5px; font-weight: 700; padding: 3px 10px; border-radius: 999px; color: #fff; background: var(--grad-primary, #6366f1); }
+.bp-tip-title { font-size: 18px; font-weight: 800; margin: 10px 0 4px; color: var(--text); line-height: 1.4; }
+.bp-tip-en { font-size: 12px; color: var(--text-secondary); direction: ltr; text-align: right; margin-bottom: 8px; }
+.bp-tip-body { font-size: 14.5px; line-height: 1.9; color: var(--text); white-space: pre-line; }
+.bp-tip-ex { margin-top: 10px; font-size: 13.5px; line-height: 1.8; padding: 10px 12px; border-radius: 12px; background: rgba(99,102,241,.08); color: var(--text); }
+.bp-tip-actions { display: flex; gap: 8px; margin-top: 14px; }
+.bp-tip-actions .action-btn { flex: 1; margin: 0; }
+.bp-lib-chips { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 8px; scrollbar-width: none; }
+.bp-lib-chips::-webkit-scrollbar { display: none; }
+.bp-lib-chips button { flex-shrink: 0; border: 1.5px solid var(--card-border); background: var(--input-bg); color: var(--text); border-radius: 999px; padding: 7px 12px; font-size: 12.5px; font-family: inherit; font-weight: 600; }
+.bp-lib-chips button.on { background: var(--primary); border-color: var(--primary); color: #fff; }
+.bp-lib-search { width: 100%; box-sizing: border-box; padding: 10px 12px; border: 1.5px solid var(--input-border); border-radius: 12px; background: var(--input-bg); color: var(--text); font-size: 14px; font-family: inherit; margin-bottom: 8px; }
+.bp-lib-list { display: flex; flex-direction: column; gap: 6px; }
+.bp-lib-item { display: flex; gap: 10px; align-items: flex-start; text-align: start; width: 100%; border: 1px solid var(--card-border); background: var(--input-bg); color: var(--text); border-radius: 12px; padding: 10px 12px; font-family: inherit; }
+.bp-lib-item .li-ic { font-size: 18px; line-height: 1.4; }
+.bp-lib-item b { display: block; font-size: 14px; }
+.bp-lib-item small { display: block; font-size: 12px; color: var(--text-secondary); line-height: 1.6; margin-top: 2px; }
+.bp-lib-empty { text-align: center; color: var(--text-secondary); padding: 20px 0; font-size: 13px; }
+@media (max-width: 380px) { .bp-tips-grid { grid-template-columns: 1fr; } }

@@ -305,6 +305,7 @@
     if (BP['_onClose_' + id]) { var f = BP['_onClose_' + id]; BP['_onClose_' + id] = null; f(); }
   };
   function openSheets() { return [].slice.call(document.querySelectorAll('.bp-sheet-overlay.show')); }
+  BP.sheet = sheet; BP.openSheets = openSheets;
 
   /* ------------------------------------------------------------------ *
    * 8. Permissions screen
@@ -731,7 +732,7 @@
     var page = $('page-settings');
     var about = document.createElement('div'); about.className = 'settings-section'; about.id = 'bp-about';
     about.innerHTML = '<h3>ℹ️ عن التطبيق</h3>' +
-      '<div class="setting-row bp-ver-row" onclick="BP.versionTap(event)"><div><div class="sr-label">رقم الإصدار</div><div class="sr-desc" id="bp-version">ميزانية Pro+</div></div><span class="bp-ver-ic">💰</span></div>' +
+      '<div class="setting-row bp-ver-row" onclick="BP.versionTap(event)"><div><div class="sr-label">إصدار البرنامج</div><div class="sr-desc" id="bp-version">ميزانية Pro+</div></div><span class="bp-ver-ic">💰</span></div>' +
       '<div id="bp-dev-row" style="display:none">' + row('⚡ وضع المطور', 'مفعّل — يظهر إعدادات الذكاء الاصطناعي المتقدمة', sw('dev-switch', true, 'BP.toggleDev()', '⚡')) + '</div>';
     page.appendChild(about);
     var ver = $('bp-version');
@@ -747,7 +748,7 @@
     h.setAttribute('data-bp', '1'); h.classList.add('bp-topbar');
     var w = document.createElement('div'); w.className = 'tb-row';
     w.innerHTML = '<button class="tb-avatar" id="tb-avatar" onclick="bnNavigate(\'settings\')" aria-label="الإعدادات"></button>' +
-      '<div class="tb-text" onclick="BP.versionTap(event)"><div class="tb-hello" id="tb-hello"></div><div class="tb-date" id="tb-date"></div></div>' +
+      '<div class="tb-text"><div class="tb-hello" id="tb-hello"></div><div class="tb-date" id="tb-date"></div></div>' +
       '<div class="tb-actions"><button class="tb-dev" id="tb-dev" onclick="BP.devBadge()" style="display:none">⚡ DEV</button>' +
       '<button class="tb-btn" id="bp-eye-btn" onclick="BP.togglePrivacy()" aria-label="إخفاء المبالغ">👁️</button></div>';
     h.appendChild(w);
@@ -773,25 +774,42 @@
   }
   BP.paintTopBar = paintTopBar;
 
-  /* Developer mode: triple-tap the greeting in the top bar (or "رقم الإصدار" in Settings).
-     Triple-tap again → back to normal. Also: the switch in Settings or the ⚡ DEV badge. */
-  /* Strict triple-tap: exactly 3 quick taps in a row (≤ 350 ms between taps, ≤ 900 ms in total), then a
-     short pause. A 4th tap, a slow tap, or a tap elsewhere cancels it, so normal use never triggers it.
-     No hints, no vibration while tapping — it stays invisible to regular users. */
-  var _tt = [], _ttEl = null, _ttT = null;
-  BP.versionTap = function (ev) {
-    var el = (ev && ev.currentTarget) || null, now = Date.now();
-    if (!_tt.length || now - _tt[_tt.length - 1] > 350 || el !== _ttEl) _tt = [];
-    _ttEl = el; _tt.push(now);
-    clearTimeout(_ttT);
-    _ttT = setTimeout(function () {
-      var ok = _tt.length === 3 && (_tt[2] - _tt[0]) <= 900;
-      _tt = [];
-      if (ok) BP.toggleDev();
-    }, 380);
+  /* Developer mode: tap «إصدار البرنامج» in Settings → عن التطبيق 7 times in a row (like Android's
+     "build number"). From the 3rd tap a small counter shows how many taps are left. Taps must be
+     consecutive: a pause > 1.2 s or a tap anywhere else starts over. When it is already on, 7 taps
+     offer to turn it off (also possible from the switch under it or the ⚡ DEV badge). */
+  var DEV_TAPS = 7, _vt = 0, _vtLast = 0, _vtT = null, _vtHintT = null;
+  function devHint(msg) {
+    var h = $('bp-dev-hint');
+    if (!h) { h = document.createElement('div'); h.id = 'bp-dev-hint'; h.setAttribute('role', 'status'); document.body.appendChild(h); }
+    clearTimeout(_vtHintT);
+    if (!msg) { h.classList.remove('show'); return; }
+    h.textContent = msg; h.classList.add('show');
+    _vtHintT = setTimeout(function () { h.classList.remove('show'); }, 1600);
+  }
+  function tapsLeftText(n) { return n === 1 ? 'ضغطة واحدة' : n === 2 ? 'ضغطتين' : n + ' ضغطات'; }
+  BP.versionTap = function () {
+    var now = Date.now();
+    if (now - _vtLast > 1200) _vt = 0;
+    _vtLast = now; _vt++;
+    clearTimeout(_vtT); _vtT = setTimeout(function () { _vt = 0; }, 1300);
+    var row = document.querySelector('.bp-ver-row');
+    if (row) { row.classList.remove('bp-ver-pulse'); void row.offsetWidth; row.classList.add('bp-ver-pulse'); }
+    if (_vt >= DEV_TAPS) {
+      _vt = 0; clearTimeout(_vtT); devHint('');
+      if (appData.creatorMode) BP.devBadge(); else BP.toggleDev();
+      return;
+    }
+    if (_vt >= 3) {
+      try { haptic('tap'); } catch (e) {}
+      devHint(appData.creatorMode ? '⚡ وضع المطور مفعّل بالفعل — كمّل ' + tapsLeftText(DEV_TAPS - _vt) + ' لإيقافه'
+                                  : '⚡ باقي ' + tapsLeftText(DEV_TAPS - _vt) + ' وتبقى في وضع المطور');
+    }
   };
   document.addEventListener('pointerdown', function (e) {
-    if (_tt.length && _ttEl && !_ttEl.contains(e.target)) { _tt = []; clearTimeout(_ttT); }
+    if (!_vt) return;
+    var row = document.querySelector('.bp-ver-row');
+    if (!row || !row.contains(e.target)) { _vt = 0; clearTimeout(_vtT); devHint(''); }
   }, true);
   BP.toggleDev = function () {
     try { secretClickCount = 2; handleSecretClick(); haptic(appData.creatorMode ? 'success' : 'tap'); }
