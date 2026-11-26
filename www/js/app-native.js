@@ -653,34 +653,40 @@
     });
     return fired;
   }
+  function curMonthIdx() {
+    try {
+      var st = _startDate(), now = new Date();
+      var diff = (now.getFullYear() - st.getFullYear()) * 12 + (now.getMonth() - st.getMonth());
+      return Math.max(0, Math.min(appData.months - 1, diff));
+    } catch (e) { return 0; }
+  }
+  // Only the CURRENT month and the WHOLE budget are watched (alerts about months that are already over
+  // are useless), and at most ONE message is shown per check — the most important one — instead of a
+  // burst of toasts + a modal.
   function budgetWatch() {
     if (!appData || !appData.setupCompleted) return;
     var before = JSON.stringify(appData.alertsShown || {});
-    var msgs = [];
-    for (var m = 0; m < appData.months; m++) {
-      var md = calcMonthData(m);
-      if (md.totalSpent <= 0) { levelCheck('wm' + m + '-', 0); continue; }
-      var base = md.allocation + md.totalIncome;
-      var pct = base > 0 ? md.totalSpent / base * 100 : 1000;
-      var f = levelCheck('wm' + m + '-', pct), name = getMonthName(m);
-      if (f === 100) msgs.push({ t: 'error', title: '⛔ خلصت حصة ' + name, body: base > 0 ? 'صرفت ' + money(md.totalSpent) + ' من ' + money(base) + ' — تجاوزت بـ ' + money(md.totalSpent - base) : 'الميزانية خلصت قبل الشهر ده، وصرفت فيه ' + money(md.totalSpent) });
-      else if (f === 90) msgs.push({ t: 'error', title: '🚨 وصلت 90% من حصة ' + name, body: 'المتبقي ' + money(Math.max(0, base - md.totalSpent)) + ' بس' });
-      else if (f === 75) msgs.push({ t: 'warning', title: '⚠️ وصلت 75% من حصة ' + name, body: 'المتبقي ' + money(Math.max(0, base - md.totalSpent)) });
-    }
+    var best = null;
+    function offer(level, msg) { if (!best || level > best.level) best = { level: level, msg: msg }; }
+    var m = curMonthIdx(), md = calcMonthData(m), name = getMonthName(m);
+    var base = md.allocation + md.totalIncome;
+    var pct = md.totalSpent <= 0 ? 0 : (base > 0 ? md.totalSpent / base * 100 : 1000);
+    var f = levelCheck('wm' + m + '-', pct);
+    if (f === 100) offer(2, { t: 'error', title: '⛔ خلصت حصة ' + name, body: base > 0 ? 'صرفت ' + money(md.totalSpent) + ' من ' + money(base) + ' — تجاوزت بـ ' + money(md.totalSpent - base) : 'الميزانية خلصت قبل الشهر ده، وصرفت فيه ' + money(md.totalSpent) });
+    else if (f === 90) offer(1.5, { t: 'error', title: '🚨 وصلت 90% من حصة ' + name, body: 'المتبقي ' + money(Math.max(0, base - md.totalSpent)) + ' بس' });
+    else if (f === 75) offer(1, { t: 'warning', title: '⚠️ وصلت 75% من حصة ' + name, body: 'المتبقي ' + money(Math.max(0, base - md.totalSpent)) });
     var all = calcAllData(), total = appData.budget + all.totalIncome;
     var gp = all.totalSpent <= 0 ? 0 : (total > 0 ? all.totalSpent / total * 100 : 1000);
     var g = levelCheck('wg-', gp);
-    if (g === 100) msgs.push({ t: 'error', big: true, title: '⛔ الميزانية الإجمالية خلصت!', body: 'صرفت ' + money(all.totalSpent) + ' من ' + money(total) + ' — تجاوزت بـ ' + money(Math.max(0, all.totalSpent - total)) + '. المتبقي الآن 0.' });
-    else if (g === 90) msgs.push({ t: 'error', title: '🚨 وصلت 90% من الميزانية الإجمالية', body: 'المتبقي ' + money(Math.max(0, all.remaining)) + ' فقط' });
-    else if (g === 75) msgs.push({ t: 'warning', title: '⚠️ وصلت 75% من الميزانية الإجمالية', body: 'المتبقي ' + money(Math.max(0, all.remaining)) });
+    if (g === 100) offer(3, { t: 'error', big: true, title: '⛔ الميزانية الإجمالية خلصت!', body: 'صرفت ' + money(all.totalSpent) + ' من ' + money(total) + ' — تجاوزت بـ ' + money(Math.max(0, all.totalSpent - total)) + '. المتبقي الآن 0.' });
+    else if (g === 90) offer(2.5, { t: 'error', title: '🚨 وصلت 90% من الميزانية الإجمالية', body: 'المتبقي ' + money(Math.max(0, all.remaining)) + ' فقط' });
+    else if (g === 75) offer(0.5, { t: 'warning', title: '⚠️ وصلت 75% من الميزانية الإجمالية', body: 'المتبقي ' + money(Math.max(0, all.remaining)) });
     if (JSON.stringify(appData.alertsShown) !== before) save();
-    msgs.forEach(function (x, i) {
-      setTimeout(function () {
-        if (x.big) showModal('⛔', x.title, x.body, null);
-        else toast(x.title + ' — ' + x.body, x.t);
-        if (typeof sendNotification === 'function' && appData.notificationsEnabled) sendNotification(x.title, x.body);
-      }, i * 900);
-    });
+    if (!best) return;
+    var x = best.msg;
+    if (x.big) showModal('⛔', x.title, x.body, null);
+    else toast(x.title + ' — ' + x.body, x.t);
+    if (typeof sendNotification === 'function' && appData.notificationsEnabled) sendNotification(x.title, x.body);
   }
   BP.budgetWatch = budgetWatch;
   W.checkBudgetAlerts = function () { clearTimeout(BP._bw); BP._bw = setTimeout(budgetWatch, 250); };
@@ -747,13 +753,8 @@
     h.appendChild(w);
     paintTopBar();
     setInterval(paintTopBar, 60000);
-    var last = new WeakMap();
-    document.addEventListener('scroll', function (e) {
-      var el = e.target; if (!el || !el.classList || !el.classList.contains('page')) return;
-      var st = el.scrollTop, prev = last.get(el) || 0; last.set(el, st);
-      if (st > prev + 6 && st > 60) h.classList.add('tb-hidden');
-      else if (st < prev - 6 || st < 20) h.classList.remove('tb-hidden');
-    }, true);
+    // (No hide-on-scroll: collapsing the bar changed the page height, which moved the scroll position and
+    //  re-triggered the scroll handler → the bar flickered in a loop. The bar is slim, so it stays put.)
   }
   function paintTopBar() {
     var hello = $('tb-hello'); if (!hello) return;

@@ -4994,7 +4994,9 @@ function loadData() {
   }
 }
 
+let _dataVer = 0;
 function saveData() {
+  _dataVer++;
   try {
     const serialized = JSON.stringify(appData);
     localStorage.setItem(DB_KEY, serialized);
@@ -5417,7 +5419,7 @@ function switchPage(page) {
       updateAIPageBadge();
     }
     if (page === 'dashboard') renderDashboard();
-    else if (page === 'stats') renderCharts();
+    else if (page === 'stats') { _chartNoAnim = true; renderCharts(); requestAnimationFrame(() => requestAnimationFrame(() => { _chartNoAnim = false; })); }
     else if (page === 'table') { collapseMonth(); }
   };
   // Focus the chat input only after the animation (opening the keyboard mid-animation causes jank)
@@ -6143,13 +6145,7 @@ function renderTable() {
     html += '</div>';
   }
 
-  // Add "+" tile for adding new month
-  if (appData.months < 12) {
-    html += '<div class="month-tile-add" onclick="addNewMonthTile()">';
-    html += '<div class="mta-icon">+</div>';
-    html += '<div class="mta-label">\u0625\u0636\u0627\u0641\u0629 \u0634\u0647\u0631</div>';
-    html += '</div>';
-  }
+  // (The "+ إضافة شهر" tile was removed — months are added/removed from Settings → عدد الأشهر.)
 
   container.innerHTML = html;
   // Reset to tile view
@@ -6681,6 +6677,11 @@ document.addEventListener('keydown', function (e) {
 
 // ========== CHARTS ==========
 let _chartsRafId = null;
+let _chartNoAnim = false; // true when drawn during a page transition: final state at once (no competing animation)
+// PERF: theme colours are read once per render (getComputedStyle inside the per-frame chart animation
+// forced a full style recalculation on every frame).
+let _cvCache = {};
+function _cv(name) { if (!(name in _cvCache)) _cvCache[name] = getComputedStyle(document.body).getPropertyValue(name).trim(); return _cvCache[name]; }
 // Canvas rect cache (valid ~120ms): resizing a canvas invalidates layout, so reading each rect
 // right after the previous canvas resize forced a full-page layout 3 times per render.
 const _rectCache = {};
@@ -6692,9 +6693,17 @@ function _cr(c) {
   return r;
 }
 function renderCharts() {
+  // PERF: the charts live on the Stats page only. Redrawing 3 canvases (with animations) on every
+  // keystroke / quick entry while another page is visible was wasted work; switchPage('stats') redraws them.
+  if (typeof currentPage !== 'undefined' && currentPage !== 'stats') return;
+  // Re-opening Stats with unchanged data/theme/size → the canvases already show the right thing
+  const _key = _dataVer + '|' + document.body.className.replace(/\bbp-\S+/g, '') + '|' + innerWidth;
+  if (_key === renderCharts._key && document.getElementById('donut-chart')?.width > 0) return;
+  renderCharts._key = _key;
   if (_chartsRafId) cancelAnimationFrame(_chartsRafId);
   _chartsRafId = requestAnimationFrame(() => {
     _chartsRafId = null;
+    _cvCache = {};
     ['donut-chart', 'weekly-chart', 'monthly-chart'].forEach(id => { const c = document.getElementById(id); if (c) _cr(c); });
     drawDonutChart();
     drawWeeklyChart();
@@ -6743,10 +6752,10 @@ function drawDonutChart() {
     ctx.beginPath();
     ctx.arc(cx, cy, radius, 0, Math.PI * 2);
     ctx.arc(cx, cy, inner, 0, Math.PI * 2, true);
-    ctx.fillStyle = getComputedStyle(document.body).getPropertyValue('--card-border').trim() || 'rgba(200,200,200,0.3)';
+    ctx.fillStyle = _cv('--card-border') || 'rgba(200,200,200,0.3)';
     ctx.fill();
 
-    ctx.fillStyle = getComputedStyle(document.body).getPropertyValue('--text-secondary').trim() || '#999';
+    ctx.fillStyle = _cv('--text-secondary') || '#999';
     ctx.font = '14px Segoe UI';
     ctx.textAlign = 'center';
     ctx.fillText('\u0644\u0627 \u062A\u0648\u062C\u062F \u0628\u064A\u0627\u0646\u0627\u062A', cx, cy + 5);
@@ -6758,7 +6767,7 @@ function drawDonutChart() {
   let animProgress = 0; const _t0 = performance.now();
 
   function animateDraw() {
-    animProgress = (performance.now() - _t0) / 380; // time-based: finishes in 380ms on any device
+    animProgress = (_chartNoAnim ? 1 : (performance.now() - _t0) / 380); // time-based: finishes in 380ms on any device
     if (animProgress > 1) animProgress = 1;
     const eased = 1 - Math.pow(1 - animProgress, 3);
 
@@ -6779,13 +6788,13 @@ function drawDonutChart() {
       sa += sliceAngle * eased + gap;
     });
 
-    ctx.fillStyle = getComputedStyle(document.body).getPropertyValue('--text').trim() || '#333';
+    ctx.fillStyle = _cv('--text') || '#333';
     ctx.font = 'bold 22px Segoe UI';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(fmt(total), cx, cy - 6);
     ctx.font = '11px Segoe UI';
-    ctx.fillStyle = getComputedStyle(document.body).getPropertyValue('--text-secondary').trim() || '#999';
+    ctx.fillStyle = _cv('--text-secondary') || '#999';
     ctx.fillText('\u0625\u062C\u0645\u0627\u0644\u064A \u0627\u0644\u0645\u0635\u0631\u0648\u0641\u0627\u062A', cx, cy + 14);
 
     if (animProgress < 1) requestAnimationFrame(animateDraw);
@@ -6823,7 +6832,7 @@ function drawWeeklyChart() {
   }
 
   if (weeks.length === 0 || weeks.every(w => w.value === 0)) {
-    ctx.fillStyle = getComputedStyle(document.body).getPropertyValue('--text-secondary').trim() || '#999';
+    ctx.fillStyle = _cv('--text-secondary') || '#999';
     ctx.font = '14px Segoe UI';
     ctx.textAlign = 'center';
     ctx.fillText('\u0644\u0627 \u062A\u0648\u062C\u062F \u0628\u064A\u0627\u0646\u0627\u062A', W / 2, H / 2);
@@ -6839,13 +6848,13 @@ function drawWeeklyChart() {
 
   let animProgress = 0; const _t0 = performance.now();
   function animateDraw() {
-    animProgress = (performance.now() - _t0) / 380; // time-based: finishes in 380ms on any device
+    animProgress = (_chartNoAnim ? 1 : (performance.now() - _t0) / 380); // time-based: finishes in 380ms on any device
     if (animProgress > 1) animProgress = 1;
     const eased = 1 - Math.pow(1 - animProgress, 3);
 
     ctx.clearRect(0, 0, W, H);
 
-    ctx.strokeStyle = getComputedStyle(document.body).getPropertyValue('--text-secondary').trim() || '#999';
+    ctx.strokeStyle = _cv('--text-secondary') || '#999';
     ctx.lineWidth = 0.5;
     ctx.globalAlpha = 0.3;
     ctx.beginPath();
@@ -6873,7 +6882,7 @@ function drawWeeklyChart() {
       }
       ctx.fill();
 
-      ctx.fillStyle = getComputedStyle(document.body).getPropertyValue('--text-secondary').trim() || '#999';
+      ctx.fillStyle = _cv('--text-secondary') || '#999';
       ctx.font = '10px Segoe UI';
       ctx.textAlign = 'center';
       ctx.fillText('\u0623' + w.label, x + barW / 2, H - padding.bottom + 16);
@@ -6909,7 +6918,7 @@ function drawMonthlyChart() {
   }
 
   if (months.every(function(m) { return m.income === 0 && m.spent === 0; })) {
-    ctx.fillStyle = getComputedStyle(document.body).getPropertyValue('--text-secondary').trim() || '#999';
+    ctx.fillStyle = _cv('--text-secondary') || '#999';
     ctx.font = '14px Segoe UI';
     ctx.textAlign = 'center';
     ctx.fillText('\u0644\u0627 \u062A\u0648\u062C\u062F \u0628\u064A\u0627\u0646\u0627\u062A', W / 2, H / 2);
@@ -6925,13 +6934,13 @@ function drawMonthlyChart() {
 
   let animProgress = 0; const _t0 = performance.now();
   function animateDraw() {
-    animProgress = (performance.now() - _t0) / 380; // time-based: finishes in 380ms on any device
+    animProgress = (_chartNoAnim ? 1 : (performance.now() - _t0) / 380); // time-based: finishes in 380ms on any device
     if (animProgress > 1) animProgress = 1;
     const eased = 1 - Math.pow(1 - animProgress, 3);
 
     ctx.clearRect(0, 0, W, H);
 
-    ctx.strokeStyle = getComputedStyle(document.body).getPropertyValue('--text-secondary').trim() || '#999';
+    ctx.strokeStyle = _cv('--text-secondary') || '#999';
     ctx.lineWidth = 0.5;
     ctx.globalAlpha = 0.3;
     ctx.beginPath();
@@ -6966,7 +6975,7 @@ function drawMonthlyChart() {
       }
       ctx.fill();
 
-      ctx.fillStyle = getComputedStyle(document.body).getPropertyValue('--text-secondary').trim() || '#999';
+      ctx.fillStyle = _cv('--text-secondary') || '#999';
       ctx.font = '10px Segoe UI';
       ctx.textAlign = 'center';
       ctx.fillText(m.label, groupX, H - padding.bottom + 16);
@@ -6976,13 +6985,13 @@ function drawMonthlyChart() {
     const legY = H - 4;
     ctx.fillStyle = '#10b981';
     ctx.fillRect(W / 2 - 60, legY - 8, 10, 10);
-    ctx.fillStyle = getComputedStyle(document.body).getPropertyValue('--text').trim() || '#333';
+    ctx.fillStyle = _cv('--text') || '#333';
     ctx.textAlign = 'right';
     ctx.fillText('\u062F\u062E\u0644', W / 2 - 66, legY);
 
     ctx.fillStyle = '#ef4444';
     ctx.fillRect(W / 2 + 10, legY - 8, 10, 10);
-    ctx.fillStyle = getComputedStyle(document.body).getPropertyValue('--text').trim() || '#333';
+    ctx.fillStyle = _cv('--text') || '#333';
     ctx.textAlign = 'left';
     ctx.fillText('\u0645\u0635\u0631\u0648\u0641', W / 2 + 24, legY);
 
@@ -10033,6 +10042,11 @@ function showResetModal() {
 function showToast(msg, type) {
   type = type || 'info';
   const container = document.getElementById('toast-container');
+  // UX: same message already on screen → don't stack it again; keep at most 2 toasts visible
+  const _txt = String(msg ?? '');
+  for (const t of container.querySelectorAll('.toast:not(.removing) .toast-message')) { if (t.textContent === _txt) return; }
+  const _live = container.querySelectorAll('.toast:not(.removing)');
+  if (_live.length >= 2) { const old = _live[0]; old.classList.add('removing'); setTimeout(() => old.remove(), 300); }
   const icons = { success: '\u2705', error: '\u274C', info: '\u2139\uFE0F', warning: '\u26A0\uFE0F' };
   const toast = document.createElement('div');
   toast.className = 'toast ' + type;

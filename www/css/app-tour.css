@@ -67,8 +67,6 @@
 
 #bp-tour.tr-instant .tr-hole, #bp-tour.tr-instant .tr-hand, #bp-tour.tr-instant .tr-tip { transition: none !important; }
 
-/* Keep the top bar steady while the tour scrolls the page */
-body.bp-touring .app-header.bp-topbar.tb-hidden { margin-top: 0 !important; opacity: 1 !important; pointer-events: auto !important; }
 
 @media (prefers-reduced-motion: reduce) {
   #bp-tour, .tr-hole, .tr-hand, .tr-tip { transition: none !important; animation: none !important; }
